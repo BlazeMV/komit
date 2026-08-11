@@ -65,9 +65,9 @@ claude -p --model haiku --output-format text --safe-mode --no-session-persistenc
 
 - `--safe-mode` disables CLAUDE.md, hooks, MCP, plugins → hermetic and fast
 - Prompt on stdin, 30s timeout, cancellable
-- Diff truncated at 60KB: per-file cap first, then whole-diff cap
-- Binary/lockfile diffs replaced with `<binary, N bytes changed>`
-- Output stripped of code fences and preamble
+- Diff truncated at 60KB: per-file cap (20KB) first, then whole-diff cap, each cut marked
+- Binary files need no special case — git already emits `Binary files differ` with no content; lockfiles are caught by the per-file cap
+- Output stripped of surrounding code fences and whitespace only. Preamble is prevented by the prompt, not by regex — heuristic preamble stripping eventually eats a real message
 - Exact flag set verified against `claude --help` at implementation time
 
 ## Config
@@ -97,8 +97,10 @@ cmd/komit/main.go        flags (--version, init), repo detection, bubbletea boot
 internal/git/            status, diff, commit, amend, push, upstream state
 internal/config/         load + merge + template render
 internal/ai/             prompt build, truncation, claude runner (interface)
-internal/ui/             model, update, view, filelist, diffview, message, keys, theme
+internal/ui/             model, update, view, keys, theme
 ```
+
+Implementation plan: [`komit-implementation.md`](komit-implementation.md).
 
 ## Errors
 
