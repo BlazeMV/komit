@@ -499,7 +499,7 @@ git commit -m "add repo handle, git runner and status"
 
 **Interfaces:**
 - Consumes: `Repo.run`, `FileChange` (Tasks 1–2)
-- Produces: `func (r *Repo) Diff(paths []string) (string, error)`, `func (r *Repo) MarkIntent(paths []string) (cleanup func(), err error)`, `func (r *Repo) hasHEAD() bool`, `func (r *Repo) RecentCommits(n int) (string, error)`
+- Produces: `func (r *Repo) Diff(paths []string) (string, error)`, `func (r *Repo) DiffAmend(paths []string) (string, error)`, `func (r *Repo) MarkIntent(paths []string) (cleanup func(), err error)`, `func (r *Repo) hasHEAD() bool`, `func (r *Repo) RecentCommits(n int) (string, error)`
 
 **Why `MarkIntent` exists:** `git commit --only` and `git diff HEAD` both ignore untracked files. Staging them with `git add -N` makes them visible without staging content. The returned cleanup undoes that if the user quits or the commit fails — komit must not leave the index dirtier than it found it.
 
@@ -623,6 +623,42 @@ func TestMarkIntentCleanupBeforeFirstCommit(t *testing.T) {
 	}
 }
 
+func TestDiffAmendSpansTheCommitBeingAmended(t *testing.T) {
+	r := newRepo(t)
+	write(t, r, "a.go", "one\n")
+	commitAll(t, r, "init")
+
+	write(t, r, "a.go", "one\ntwo\n")
+	commitAll(t, r, "add two") // the commit that will be amended
+
+	write(t, r, "a.go", "one\ntwo\nthree\n")
+
+	diff, err := r.DiffAmend([]string{"a.go"})
+	if err != nil {
+		t.Fatalf("DiffAmend: %v", err)
+	}
+	for _, want := range []string{"+two", "+three"} {
+		if !strings.Contains(diff, want) {
+			t.Errorf("diff missing %q — amend context must span HEAD~1 to working tree:\n%s", want, diff)
+		}
+	}
+}
+
+func TestDiffAmendOnRootCommit(t *testing.T) {
+	r := newRepo(t)
+	write(t, r, "a.go", "one\n")
+	commitAll(t, r, "init")
+	write(t, r, "a.go", "one\ntwo\n")
+
+	diff, err := r.DiffAmend([]string{"a.go"})
+	if err != nil {
+		t.Fatalf("DiffAmend on a root commit: %v", err)
+	}
+	if !strings.Contains(diff, "+one") {
+		t.Errorf("amending the root commit should show the file as added:\n%s", diff)
+	}
+}
+
 func TestRecentCommits(t *testing.T) {
 	r := newRepo(t)
 	write(t, r, "a.go", "1\n")
@@ -683,6 +719,17 @@ func (r *Repo) diffBase() string {
 // changes together) — the same content that Commit will write.
 func (r *Repo) Diff(paths []string) (string, error) {
 	args := append([]string{"diff", "--no-color", r.diffBase(), "--"}, paths...)
+	return r.run(args...)
+}
+
+// DiffAmend diffs against HEAD's parent — the content the amended commit will
+// hold. Against HEAD it would omit what is already committed.
+func (r *Repo) DiffAmend(paths []string) (string, error) {
+	base := emptyTree
+	if _, err := r.run("rev-parse", "--verify", "--quiet", "HEAD~1"); err == nil {
+		base = "HEAD~1"
+	}
+	args := append([]string{"diff", "--no-color", base, "--"}, paths...)
 	return r.run(args...)
 }
 
@@ -3095,16 +3142,13 @@ func (m *Model) generate(nudge string) tea.Cmd {
 		}
 		defer cleanup()
 
-		diffPaths := paths
-		diff, err := repo.Diff(diffPaths)
+		diffOf := repo.Diff
+		if amend {
+			diffOf = repo.DiffAmend
+		}
+		diff, err := diffOf(paths)
 		if err != nil {
 			return errMsg{err}
-		}
-		if amend {
-			prev, err := repo.Diff([]string{}) // full HEAD diff context for amend
-			if err == nil {
-				diff = prev + diff
-			}
 		}
 		recent, err := repo.RecentCommits(10)
 		if err != nil {
