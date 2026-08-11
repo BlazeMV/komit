@@ -1,0 +1,17 @@
+model: haiku
+prompt: |
+  Write a git commit message for the diff below.
+
+  Rules:
+  - single line, imperative mood, lowercase, no trailing period
+  - no body unless the change is non-obvious
+  - describe what changed, not which files changed
+  - output only the message, nothing else
+
+  Recent commits in this repo, for style:
+  {{recent_commits}}
+
+  Files: {{files}}
+
+  Diff:
+  {{diff}}
