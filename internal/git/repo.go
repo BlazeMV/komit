@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -59,3 +60,5 @@ func (r *Repo) Status() ([]FileChange, error) {
 	}
 	return ParseStatus(out)
 }
+
+func itoa(n int) string { return strconv.Itoa(n) }

@@ -70,10 +70,10 @@ func TestParseStatusRenameMissingOriginal(t *testing.T) {
 
 func TestFileChangeClassification(t *testing.T) {
 	tests := []struct {
-		name              string
-		c                 FileChange
+		name               string
+		c                  FileChange
 		untracked, partial bool
-		letter            string
+		letter             string
 	}{
 		{"untracked", FileChange{Index: '?', Worktree: '?'}, true, false, "?"},
 		{"staged only", FileChange{Index: 'M', Worktree: ' '}, false, false, "M"},
