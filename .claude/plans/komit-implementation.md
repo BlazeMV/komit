@@ -24,6 +24,7 @@ Design spec: [`komit.md`](komit.md).
 | `charm.land/x/exp/teatest/v2` | latest |
 | `gopkg.in/yaml.v3` | v3.0.1 |
 
+- **Code comments follow the user's CLAUDE.md policy**, which is stricter than the comments shown in this plan's snippets: default to none; only for non-obvious or shady code; hard cap 2 lines of prose including docblocks; state the invariant and what breaks if violated — never the mechanism, the call chain, or why this approach was picked over another. If a comment in a snippet exceeds that, shorten it when you write the file.
 - Key handling matches on `tea.KeyMsg.String()`. Verified against v2.0.8: a rune key yields `"g"`, shifted yields `"A"`, and **space yields `"space"`, not `" "`**. `tea.KeyMsg` is an interface in v2 satisfied by `tea.KeyPressMsg`, so `case tea.KeyMsg:` in a type switch still works.
 - Commit messages: single line, lowercase, no body, **no AI attribution** (no `Co-Authored-By`, no generated-with footer)
 - TDD: every task writes the failing test first and runs it to see it fail before implementing
@@ -176,9 +177,8 @@ type FileChange struct {
 
 func (f FileChange) Untracked() bool { return f.Index == '?' }
 
-// PartiallyStaged reports that the file has both staged and unstaged changes.
-// Committing it with --only takes the full working-tree version, so the UI
-// marks these.
+// PartiallyStaged means --only will commit the full working-tree version, not
+// just the staged hunks. The UI must mark these.
 func (f FileChange) PartiallyStaged() bool {
 	return f.Index != '?' && f.Index != ' ' && f.Worktree != ' '
 }
@@ -686,9 +686,8 @@ func (r *Repo) Diff(paths []string) (string, error) {
 	return r.run(args...)
 }
 
-// MarkIntent stages intent-to-add entries so untracked paths appear in diffs and
-// can be committed with --only. cleanup restores the index for those paths and
-// is safe to call more than once.
+// MarkIntent makes untracked paths visible to diff and --only. Not calling
+// cleanup leaves them staged in the user's index.
 func (r *Repo) MarkIntent(paths []string) (func(), error) {
 	if len(paths) == 0 {
 		return func() {}, nil
@@ -1259,9 +1258,8 @@ prompt: |
 `internal/config/config.go`:
 
 ```go
-// Package config resolves komit's prompt configuration: built-in defaults,
-// overridden per key by the user's global file, overridden again per key by a
-// .komit.yml in the repository.
+// Package config resolves the prompt configuration: built-in defaults, then the
+// user's global file, then the repo's .komit.yml — each overriding per key.
 package config
 
 import (
@@ -1351,8 +1349,7 @@ type Vars struct {
 	RecentCommits string
 }
 
-// Render substitutes the {{...}} placeholders. Unknown placeholders are left
-// alone rather than erroring — the prompt is the user's text, not a program.
+// Render substitutes the {{...}} placeholders. Unknown ones are left as-is.
 func Render(prompt string, v Vars) string {
 	return strings.NewReplacer(
 		"{{diff}}", v.Diff,
@@ -1483,9 +1480,8 @@ const (
 	MaxFileBytes = 20 << 10
 )
 
-// TruncateDiff keeps a diff under MaxDiffBytes: first by capping each file's
-// section at MaxFileBytes, then by cutting the tail if it is still too large.
-// Every cut is marked so the model (and the reader) knows content is missing.
+// TruncateDiff keeps a diff under MaxDiffBytes: per-file cap first, then the
+// tail. Every cut is marked — unmarked truncation reads as a complete diff.
 func TruncateDiff(diff string) string {
 	if len(diff) <= MaxDiffBytes {
 		return diff
@@ -1770,9 +1766,8 @@ import (
 // ErrMissing means the claude CLI is not installed or not on PATH.
 var ErrMissing = errors.New("claude CLI not found on PATH")
 
-// CLI runs the claude binary in headless print mode. --safe-mode disables
-// CLAUDE.md, hooks, MCP servers and plugins, which keeps generation fast and
-// independent of whatever the repo configures.
+// CLI runs the claude binary in headless print mode. --safe-mode is load-bearing:
+// without it the repo's CLAUDE.md, hooks and MCP servers change the output.
 type CLI struct {
 	Bin string
 }
@@ -2021,7 +2016,7 @@ type statusMsg struct {
 type errMsg struct{ err error }
 
 // applyStartupSelection selects staged files if anything is staged, otherwise
-// everything — matching how the commit window feels after `git add`.
+// everything.
 func applyStartupSelection(in []item) []item {
 	anyStaged := false
 	for _, it := range in {
