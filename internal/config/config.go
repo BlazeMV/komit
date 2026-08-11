@@ -65,8 +65,7 @@ func Load(repoRoot string) (Config, error) {
 	return cfg, nil
 }
 
-// mergeFile unmarshals path onto cfg. yaml.v3 only writes fields the document
-// actually contains, which gives per-key override for free.
+// mergeFile updates cfg from path. Missing files are skipped; malformed ones error.
 func mergeFile(cfg *Config, path string) error {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
