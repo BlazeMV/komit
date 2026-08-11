@@ -6,14 +6,25 @@
 
 **Architecture:** Four internal packages behind a bubbletea UI. `internal/git` shells out to the real `git` binary (hooks, aliases, signing, worktrees all keep working). `internal/config` resolves a global + per-repo YAML prompt. `internal/ai` builds the prompt and runs `claude -p` through a `Runner` interface so tests never hit the network. `internal/ui` is the bubbletea model wiring them together.
 
-**Tech Stack:** Go 1.24, bubbletea v1.3.10, bubbles v1.0.0, lipgloss v1.1.0, yaml.v3 v3.0.1, teatest (charmbracelet/x/exp) for UI tests.
+**Tech Stack:** Go 1.25, bubbletea v2.0.8, bubbles v2.1.1, lipgloss v2.0.6, yaml.v3 v3.0.1, teatest/v2 for UI tests.
 
 Design spec: [`komit.md`](komit.md).
 
 ## Global Constraints
 
-- Module path `github.com/BlazeMV/komit`, Go 1.24, branch `master`
-- Dependency set is fixed: `bubbletea v1.3.10`, `bubbles v1.0.0`, `lipgloss v1.1.0`, `gopkg.in/yaml.v3 v3.0.1`. Do **not** use bubbletea v2 — bubbles v1.0.0 requires the v1 line.
+- Module path `github.com/BlazeMV/komit`, branch `master`
+- **Go 1.25** — `bubbles/v2` declares a `go >= 1.25.0` floor. `go get` bumps the `go` directive automatically; a 1.24 toolchain downloads 1.25 on demand.
+- Dependency set is fixed. Charm's v2 line lives on a **vanity module path** — `charm.land/…`, not `github.com/charmbracelet/…`. Importing the github path fails with `module declares its path as: charm.land/…`:
+
+| import path | version |
+|---|---|
+| `charm.land/bubbletea/v2` | v2.0.8 |
+| `charm.land/bubbles/v2` | v2.1.1 |
+| `charm.land/lipgloss/v2` | v2.0.6 |
+| `charm.land/x/exp/teatest/v2` | latest |
+| `gopkg.in/yaml.v3` | v3.0.1 |
+
+- Key handling matches on `tea.KeyMsg.String()`. Verified against v2.0.8: a rune key yields `"g"`, shifted yields `"A"`, and **space yields `"space"`, not `" "`**. `tea.KeyMsg` is an interface in v2 satisfied by `tea.KeyPressMsg`, so `case tea.KeyMsg:` in a type switch still works.
 - Commit messages: single line, lowercase, no body, **no AI attribution** (no `Co-Authored-By`, no generated-with footer)
 - TDD: every task writes the failing test first and runs it to see it fail before implementing
 - `git` is always invoked as `git -C <repo dir>` — never rely on the process working directory
@@ -2102,7 +2113,7 @@ const (
 	keyDown      = "down"
 	keyUpAlt     = "k"
 	keyDownAlt   = "j"
-	keyToggle    = " "
+	keyToggle    = "space" // v2 KeyMsg.String() for the space bar
 	keyToggleAll = "a"
 	keyDiff      = "d"
 	keyGenerate  = "g"
@@ -2123,7 +2134,7 @@ const (
 ```go
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 var (
 	titleStyle    = lipgloss.NewStyle().Bold(true)
@@ -2138,7 +2149,7 @@ var (
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go get github.com/charmbracelet/lipgloss@v1.1.0 && go test ./internal/ui/ -v`
+Run: `go get charm.land/lipgloss/v2@v2.0.6 && go test ./internal/ui/ -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -2171,18 +2182,25 @@ import (
 	"testing"
 
 	"github.com/BlazeMV/komit/internal/git"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
-func key(s string) tea.KeyMsg {
-	switch s {
-	case "up", "down", "tab", "esc":
-		return tea.KeyMsg{Type: map[string]tea.KeyType{
-			"up": tea.KeyUp, "down": tea.KeyDown, "tab": tea.KeyTab, "esc": tea.KeyEsc,
-		}[s]}
-	default:
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+// key builds a v2 key press. Named keys use their Code constant; anything else
+// is a rune with matching Text, which is what a real terminal delivers.
+func key(s string) tea.KeyPressMsg {
+	named := map[string]rune{
+		"up": tea.KeyUp, "down": tea.KeyDown, "tab": tea.KeyTab,
+		"esc": tea.KeyEsc, "enter": tea.KeyEnter, " ": tea.KeySpace,
 	}
+	if code, ok := named[s]; ok {
+		msg := tea.KeyPressMsg{Code: code}
+		if s == " " {
+			msg.Text = " " // String() still reports "space"
+		}
+		return msg
+	}
+	r := []rune(s)[0]
+	return tea.KeyPressMsg{Code: r, Text: s}
 }
 
 func update(m Model, msg tea.Msg) Model {
@@ -2305,7 +2323,7 @@ Expected: build failure — `m.Update undefined`, `m.View undefined`
 package ui
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func (m Model) Init() tea.Cmd {
@@ -2447,7 +2465,7 @@ func (m Model) fileList() string {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go get github.com/charmbracelet/bubbletea@v1.3.10 && go test ./internal/ui/ -v`
+Run: `go get charm.land/bubbletea/v2@v2.0.8 && go test ./internal/ui/ -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -2574,8 +2592,8 @@ Add to `model.go`:
 
 ```go
 import (
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
 )
 
 // added to Model:
@@ -2615,7 +2633,7 @@ func New(repo *git.Repo, cfg config.Config, runner ai.Runner) Model {
 		repo:     repo,
 		cfg:      cfg,
 		runner:   runner,
-		diff:     viewport.New(0, 0),
+		diff:     viewport.New(),
 		msgInput: newMessageInput(),
 	}
 }
@@ -2727,8 +2745,8 @@ the message editor under it via `m.msgInput.View()`. Size both panes from
 ```go
 case tea.WindowSizeMsg:
 	m.width, m.height = msg.Width, msg.Height
-	m.diff.Width = msg.Width/2 - 4
-	m.diff.Height = msg.Height - 12
+	m.diff.SetWidth(msg.Width/2 - 4)
+	m.diff.SetHeight(msg.Height - 12)
 	m.msgInput.SetWidth(msg.Width - 4)
 	return m, nil
 ```
@@ -2776,7 +2794,7 @@ func (m Model) openEditor() tea.Cmd {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go get github.com/charmbracelet/bubbles@v1.0.0 && go test ./internal/ui/ -v`
+Run: `go get charm.land/bubbles/v2@v2.1.1 && go test ./internal/ui/ -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -2940,7 +2958,7 @@ import (
 	"testing"
 
 	"github.com/BlazeMV/komit/internal/git"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // newUIRepo builds a temp repo with one committed, then modified, file.
@@ -3018,7 +3036,8 @@ type spinnerTick = spinner.TickMsg
 ```
 
 `New` must also initialise the spinner and the nudge input, alongside the
-viewport and textarea added in Task 10:
+viewport and textarea added in Task 10. Imports:
+`charm.land/bubbles/v2/spinner`, `charm.land/bubbles/v2/textinput`.
 
 ```go
 func New(repo *git.Repo, cfg config.Config, runner ai.Runner) Model {
@@ -3032,7 +3051,7 @@ func New(repo *git.Repo, cfg config.Config, runner ai.Runner) Model {
 		repo:     repo,
 		cfg:      cfg,
 		runner:   runner,
-		diff:     viewport.New(0, 0),
+		diff:     viewport.New(),
 		msgInput: newMessageInput(),
 		spinner:  sp,
 		nudge:    ni,
@@ -3341,7 +3360,7 @@ import (
 	"github.com/BlazeMV/komit/internal/config"
 	"github.com/BlazeMV/komit/internal/git"
 	"github.com/BlazeMV/komit/internal/ui"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // version is set by the linker at release time.
@@ -3468,8 +3487,8 @@ import (
 	"time"
 
 	"github.com/BlazeMV/komit/internal/config"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/exp/teatest"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/x/exp/teatest/v2"
 )
 
 type e2eRunner struct{}
@@ -3488,19 +3507,19 @@ func TestSelectGenerateCommitFlow(t *testing.T) {
 		return strings.Contains(string(b), "a.go")
 	}, teatest.WithDuration(3*time.Second))
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	tm.Send(tea.KeyPressMsg{Code: 'g', Text: "g"})
 
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
 		return strings.Contains(string(b), "feat: end to end")
 	}, teatest.WithDuration(5*time.Second))
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	tm.Send(tea.KeyPressMsg{Code: 'c', Text: "c"})
 
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
 		return strings.Contains(string(b), "committed")
 	}, teatest.WithDuration(5*time.Second))
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.Send(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 	io.ReadAll(tm.FinalOutput(t))
 
@@ -3523,19 +3542,19 @@ func TestAmendRefusalFlow(t *testing.T) {
 		return strings.Contains(string(b), "a.go")
 	}, teatest.WithDuration(3*time.Second))
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("A")})
+	tm.Send(tea.KeyPressMsg{Code: 'A', Text: "A"})
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
 		return strings.Contains(string(b), "already pushed")
 	}, teatest.WithDuration(3*time.Second))
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	tm.Send(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go get github.com/charmbracelet/x/exp/teatest@latest && go test ./internal/ui/ -run TestSelectGenerateCommitFlow -v`
+Run: `go get charm.land/x/exp/teatest/v2@latest && go test ./internal/ui/ -run TestSelectGenerateCommitFlow -v`
 Expected: FAIL — most likely `headPushed` is not exported/settable from the test or timing assertions miss; fix the model, not the test's intent
 
 - [ ] **Step 3: Make it pass**
@@ -3605,7 +3624,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
-        with: { go-version: "1.24" }
+        with: { go-version: "1.25" }
       - run: go test ./...
       - uses: goreleaser/goreleaser-action@v6
         with: { args: release --clean }

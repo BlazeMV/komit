@@ -4,7 +4,7 @@
 
 ## Shape
 
-- Standalone Go binary (`komit`), bubbletea/lipgloss TUI, runs in any git repo
+- Standalone Go binary (`komit`), bubbletea v2 / lipgloss v2 TUI (`charm.land/…` module paths, Go 1.25), runs in any git repo
 - Message generation shells out to `claude -p` — uses the existing Max/Pro subscription, no API key, no metered billing
 - Distribution: `go install`, homebrew tap, GitHub release binaries
 - Not a Claude Code plugin; lives outside `blaze-claude-plugins`
