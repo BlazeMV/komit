@@ -25,6 +25,7 @@ Design spec: [`komit.md`](komit.md).
 | `gopkg.in/yaml.v3` | v3.0.1 |
 
 - **Code comments follow the user's CLAUDE.md policy**, which is stricter than the comments shown in this plan's snippets: default to none; only for non-obvious or shady code; hard cap 2 lines of prose including docblocks; state the invariant and what breaks if violated — never the mechanism, the call chain, or why this approach was picked over another. If a comment in a snippet exceeds that, shorten it when you write the file.
+- **There is no `tea.WithAltScreen()` in v2.** Alt screen is a field on the view: set `v.AltScreen = true` inside `View()`. Passing it as a program option does not compile.
 - **`tea.Model` in v2 is `Init() Cmd`, `Update(Msg) (Model, Cmd)`, `View() View`** — note `View()` returns `tea.View`, NOT a string (verified against v2.0.8 source). Keep the layout in `render() string` and make `View()` a thin `tea.NewView(m.render())` wrapper; tests assert on `m.View().Content`.
 - Key handling matches on `tea.KeyMsg.String()`. Verified against v2.0.8: a rune key yields `"g"`, shifted yields `"A"`, and **space yields `"space"`, not `" "`**. `tea.KeyMsg` is an interface in v2 satisfied by `tea.KeyPressMsg`, so `case tea.KeyMsg:` in a type switch still works.
 - Commit messages: single line, lowercase, no body, **no AI attribution** (no `Co-Authored-By`, no generated-with footer)
@@ -3451,7 +3452,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	p := tea.NewProgram(ui.New(repo, cfg, ai.CLI{}), tea.WithAltScreen())
+	p := tea.NewProgram(ui.New(repo, cfg, ai.CLI{}))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
