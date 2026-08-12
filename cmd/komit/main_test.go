@@ -74,3 +74,33 @@ func TestInitDoesNotClobberExistingConfig(t *testing.T) {
 		t.Errorf("existing config was overwritten: %q", data)
 	}
 }
+
+func TestInitIsAtomic(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+
+	var out1, errOut1 bytes.Buffer
+	if code := run([]string{"init"}, &out1, &errOut1); code != 0 {
+		t.Fatalf("first init failed: exit code = %d, stderr = %q", code, errOut1.String())
+	}
+
+	path := filepath.Join(home, "komit", "config.yml")
+	data1, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading config after first init: %v", err)
+	}
+
+	var out2, errOut2 bytes.Buffer
+	if code := run([]string{"init"}, &out2, &errOut2); code == 0 {
+		t.Error("second init should fail, got exit code = 0")
+	}
+
+	data2, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading config after second init: %v", err)
+	}
+
+	if string(data1) != string(data2) {
+		t.Errorf("config was modified by failed second init:\nbefore: %q\nafter: %q", string(data1), string(data2))
+	}
+}

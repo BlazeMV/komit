@@ -65,14 +65,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 // initConfig writes the built-in defaults to the user config path, refusing to
-// overwrite an existing file.
+// overwrite an existing file. Uses atomic file creation to prevent partial writes.
 func initConfig(stdout io.Writer) error {
 	path, err := config.UserPath()
 	if err != nil {
 		return err
-	}
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("%s already exists", path)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -82,8 +79,21 @@ func initConfig(stdout io.Writer) error {
 	for _, line := range splitLines(cfg.Prompt) {
 		body += "  " + line + "\n"
 	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("%s already exists", path)
+		}
 		return err
+	}
+	_, err = f.WriteString(body)
+	closeErr := f.Close()
+	if err != nil || closeErr != nil {
+		os.Remove(path)
+		if err != nil {
+			return err
+		}
+		return closeErr
 	}
 	fmt.Fprintf(stdout, "wrote %s\n", path)
 	return nil
