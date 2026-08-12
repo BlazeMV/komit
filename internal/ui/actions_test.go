@@ -203,6 +203,29 @@ func TestSecondGenerateWhileBusyIsIgnored(t *testing.T) {
 	}
 }
 
+// D8: g, r, c and P must all be refused while busy, not just g.
+func TestBusyGuardBlocksAllBusyGuardedKeys(t *testing.T) {
+	for _, k := range []string{"g", "r", "c", "P"} {
+		t.Run(k, func(t *testing.T) {
+			m := newTestModel(t, &fakeRunner{out: "x"})
+
+			next, cmd1 := m.Update(key("g"))
+			if cmd1 == nil {
+				t.Fatal("g produced no command")
+			}
+			busy := next.(Model)
+			if !busy.busy {
+				t.Fatal("model not busy after g")
+			}
+
+			_, cmd2 := busy.Update(key(k))
+			if cmd2 != nil {
+				t.Errorf("%s while busy produced a command, want it refused", k)
+			}
+		})
+	}
+}
+
 func TestEscDuringCommitIgnoresStaleGenerationCancel(t *testing.T) {
 	runner := &fakeRunner{out: "feat: thing"}
 	m := newTestModel(t, runner)
@@ -232,6 +255,59 @@ func TestEscDuringCommitIgnoresStaleGenerationCancel(t *testing.T) {
 	}
 	if strings.Contains(afterEsc.View().Content, "cancelled") {
 		t.Errorf("view falsely reports the commit as cancelled:\n%s", afterEsc.View().Content)
+	}
+}
+
+// D9: E must be refused while busy — a generation finishing mid-edit would
+// otherwise overwrite what the user just typed.
+func TestEditorRefusedWhileBusy(t *testing.T) {
+	m := newTestModel(t, &fakeRunner{out: "x"})
+
+	next, cmd1 := m.Update(key("g"))
+	if cmd1 == nil {
+		t.Fatal("g produced no command")
+	}
+	busy := next.(Model)
+	if !busy.busy {
+		t.Fatal("model not busy after g")
+	}
+
+	after, cmd2 := busy.Update(key("E"))
+	if cmd2 != nil {
+		t.Error("E opened the editor while busy, want it refused")
+	}
+	am := after.(Model)
+	if !strings.Contains(am.View().Content, "generat") {
+		t.Errorf("view does not explain the refusal:\n%s", am.View().Content)
+	}
+}
+
+// D9: selection toggles and A must stay unguarded — verify A's own refusal
+// path (headPushed) still fires the same whether or not a generation is busy.
+func TestAmendStillWorksWhileBusy(t *testing.T) {
+	m := newTestModel(t, &fakeRunner{out: "x"})
+
+	next, cmd1 := m.Update(key("g"))
+	if cmd1 == nil {
+		t.Fatal("g produced no command")
+	}
+	busy := next.(Model)
+	if !busy.busy {
+		t.Fatal("model not busy after g")
+	}
+
+	toggled := update(busy, key("A"))
+	if !toggled.amend {
+		t.Error("A did not toggle amend while busy — it should be unguarded")
+	}
+
+	busy.headPushed = true
+	refused := update(busy, key("A"))
+	if refused.amend {
+		t.Error("amend enabled on a pushed HEAD even while busy")
+	}
+	if !strings.Contains(refused.View().Content, "already pushed") {
+		t.Errorf("view does not explain the refusal:\n%s", refused.View().Content)
 	}
 }
 

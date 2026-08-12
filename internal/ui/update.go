@@ -158,7 +158,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// While the diff pane has focus, all keys but cancel/tab/quit scroll it.
+	// While the diff pane has focus, all keys but cancel/tab/quit/q/d scroll it.
 	if m.focus == focusDiff {
 		switch msg.String() {
 		case keyCancel:
@@ -168,6 +168,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			cmd := m.quit()
 			return m, cmd
+		case keyQuit:
+			cmd := m.quit()
+			return m, cmd
+		case keyDiff:
+			m.showDiff = false
+			return m.moveFocus(focusFiles)
 		}
 		var cmd tea.Cmd
 		m.diff, cmd = m.diff.Update(msg)
@@ -202,6 +208,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyEdit:
 		return m.moveFocus(focusMessage)
 	case keyEditor:
+		if m.busy {
+			m.status = "generation in progress — wait for it to finish before opening the editor"
+			m.err = nil
+			return m, nil
+		}
 		return m, m.openEditor()
 	case keyGenerate:
 		if m.busy {

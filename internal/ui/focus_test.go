@@ -58,6 +58,59 @@ func TestScrollKeyWhileDiffFocusedReachesViewport(t *testing.T) {
 	}
 }
 
+// D6: esc from focusDiff must return focus to the file list.
+func TestEscFromFocusDiffReturnsToFiles(t *testing.T) {
+	m := modelWithFiles()
+	m = update(m, key("d"))
+	m = update(m, key("tab"))
+	if m.focus != focusDiff {
+		t.Fatalf("focus = %v, want focusDiff", m.focus)
+	}
+
+	m = update(m, key("esc"))
+	if m.focus != focusFiles {
+		t.Errorf("focus = %v, want focusFiles", m.focus)
+	}
+}
+
+// D7: q must still quit while the diff pane has focus, not be swallowed by
+// the viewport.
+func TestKeyQFromFocusDiffQuits(t *testing.T) {
+	m := modelWithFiles()
+	m = update(m, key("d"))
+	m = update(m, key("tab"))
+	if m.focus != focusDiff {
+		t.Fatalf("focus = %v, want focusDiff", m.focus)
+	}
+
+	_, cmd := m.Update(key("q"))
+	if cmd == nil {
+		t.Fatal("q from focusDiff produced no command, want tea.Quit")
+	}
+	if msg := cmd(); msg == nil {
+		t.Fatal("quit command produced no message")
+	}
+}
+
+// D7: d must hide the diff pane and return focus, not be swallowed by the
+// viewport.
+func TestKeyDFromFocusDiffHidesPane(t *testing.T) {
+	m := modelWithFiles()
+	m = update(m, key("d"))
+	m = update(m, key("tab"))
+	if m.focus != focusDiff {
+		t.Fatalf("focus = %v, want focusDiff", m.focus)
+	}
+
+	m = update(m, key("d"))
+	if m.showDiff {
+		t.Error("d from focusDiff did not hide the pane")
+	}
+	if m.focus == focusDiff {
+		t.Error("focus still on the now-hidden diff pane")
+	}
+}
+
 func TestStaleDiffMsgForNonCursorFileIsDiscarded(t *testing.T) {
 	m := modelWithFiles()
 	m = update(m, key("d"))
