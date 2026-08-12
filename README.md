@@ -10,6 +10,14 @@ Requires the `claude` CLI on PATH. komit shells out to it in headless mode and u
 go install github.com/BlazeMV/komit/cmd/komit@latest
 ```
 
+## Update
+
+```
+go install github.com/BlazeMV/komit/cmd/komit@latest
+```
+
+Re-running the install command replaces the binary in place. `komit --version` reports what you have; releases are at https://github.com/BlazeMV/komit/releases.
+
 ## Build from source
 
 Requires Go 1.25 or later.
@@ -69,3 +77,12 @@ prompt: |
   Diff:
   {{diff}}
 ```
+
+## Uninstall
+
+```
+rm "$(go env GOPATH)/bin/komit"
+rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/komit"
+```
+
+The second line removes your saved prompt. Any `.komit.yml` files you added to individual repos are left alone.
