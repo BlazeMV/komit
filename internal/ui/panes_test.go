@@ -1,0 +1,89 @@
+package ui
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/BlazeMV/komit/internal/git"
+)
+
+func TestDiffPaneTogglesAndShowsContent(t *testing.T) {
+	m := modelWithFiles()
+	if strings.Contains(m.View().Content, "@@") {
+		t.Fatal("diff pane visible before it was requested")
+	}
+
+	m = update(m, key("d"))
+	m = update(m, diffMsg{path: "a.go", body: "@@ -1 +1 @@\n-old\n+new\n"})
+
+	out := m.View().Content
+	if !strings.Contains(out, "+new") {
+		t.Errorf("diff pane missing content:\n%s", out)
+	}
+
+	m = update(m, key("d"))
+	if strings.Contains(m.View().Content, "+new") {
+		t.Error("diff pane did not hide")
+	}
+}
+
+func TestDiffLoadsForCursorFileNotSelection(t *testing.T) {
+	m := modelWithFiles()
+	m = update(m, key("d"))
+	m = update(m, key("down")) // cursor on b.go
+	m = update(m, diffMsg{path: "b.go", body: "@@ b @@"})
+
+	if !strings.Contains(m.View().Content, "b.go") {
+		t.Error("diff pane header does not name the cursor file")
+	}
+}
+
+func TestMessageEditorAcceptsTyping(t *testing.T) {
+	m := modelWithFiles()
+	m = update(m, key("e"))
+	for _, r := range "fix: thing" {
+		m = update(m, key(string(r)))
+	}
+	if got := m.message(); got != "fix: thing" {
+		t.Errorf("message = %q, want %q", got, "fix: thing")
+	}
+	if !strings.Contains(m.View().Content, "fix: thing") {
+		t.Error("view does not show the typed message")
+	}
+}
+
+func TestEscapeLeavesEditorAndKeysBindAgain(t *testing.T) {
+	m := modelWithFiles()
+	m = update(m, key("e"))
+	m = update(m, key("a")) // typed, not select-all
+	m = update(m, key("esc"))
+	m = update(m, key("a")) // now select-all again
+
+	if m.message() != "a" {
+		t.Errorf("message = %q, want the typed 'a'", m.message())
+	}
+	if len(m.selectedPaths()) != 2 {
+		t.Errorf("select-all did not run after esc: %v", m.selectedPaths())
+	}
+}
+
+func TestGeneratedMsgFillsEditor(t *testing.T) {
+	m := modelWithFiles()
+	m = update(m, generatedMsg{message: "feat: generated"})
+	if m.message() != "feat: generated" {
+		t.Errorf("message = %q", m.message())
+	}
+	if m.busy {
+		t.Error("busy flag still set after generation finished")
+	}
+}
+
+func TestPartialStagingWarningShownForSelectedFile(t *testing.T) {
+	m := Model{width: 100, height: 30}
+	m = update(m, statusMsg{files: []git.FileChange{
+		{Path: "partial.go", Index: 'M', Worktree: 'M'},
+	}})
+	if !strings.Contains(m.View().Content, "±") {
+		t.Error("no partial-staging marker")
+	}
+}

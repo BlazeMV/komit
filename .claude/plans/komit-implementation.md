@@ -2598,13 +2598,14 @@ func TestEscapeLeavesEditorAndKeysBindAgain(t *testing.T) {
 	m = update(m, key("e"))
 	m = update(m, key("a")) // typed, not select-all
 	m = update(m, key("esc"))
-	m = update(m, key("a")) // now select-all again
+	m = update(m, key("a")) // bound to toggleAll again, not typed
 
 	if m.message() != "a" {
 		t.Errorf("message = %q, want the typed 'a'", m.message())
 	}
-	if len(m.selectedPaths()) != 2 {
-		t.Errorf("select-all did not run after esc: %v", m.selectedPaths())
+	// modelWithFiles() starts fully selected, so toggleAll clears it.
+	if len(m.selectedPaths()) != 0 {
+		t.Errorf("toggleAll did not run after esc: %v", m.selectedPaths())
 	}
 }
 
@@ -2808,11 +2809,6 @@ case keyEditor:
 ```
 
 ```go
-type editorDoneMsg struct {
-	message string
-	err     error
-}
-
 func (m Model) openEditor() tea.Cmd {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {

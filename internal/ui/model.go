@@ -2,6 +2,10 @@
 package ui
 
 import (
+	"strings"
+
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
 	"github.com/BlazeMV/komit/internal/ai"
 	"github.com/BlazeMV/komit/internal/config"
 	"github.com/BlazeMV/komit/internal/git"
@@ -35,12 +39,37 @@ type Model struct {
 	status string
 	err    error
 
+	showDiff bool
+	diffPath string
+	diff     viewport.Model
+	msgInput textarea.Model
+	busy     bool
+
 	width, height int
 }
 
 // New builds the initial model. Files are loaded by the Init command.
 func New(repo *git.Repo, cfg config.Config, runner ai.Runner) Model {
-	return Model{repo: repo, cfg: cfg, runner: runner}
+	return Model{
+		repo:     repo,
+		cfg:      cfg,
+		runner:   runner,
+		diff:     viewport.New(),
+		msgInput: newMessageInput(),
+	}
+}
+
+func newMessageInput() textarea.Model {
+	ta := textarea.New()
+	ta.Placeholder = "commit message — press g to generate, e to type"
+	ta.ShowLineNumbers = false
+	ta.SetHeight(3)
+	return ta
+}
+
+// message returns the trimmed commit message currently in the editor.
+func (m Model) message() string {
+	return strings.TrimSpace(m.msgInput.Value())
 }
 
 // statusMsg carries a refreshed working-tree state.
@@ -51,6 +80,15 @@ type statusMsg struct {
 
 // errMsg carries a failure to display without tearing the TUI down.
 type errMsg struct{ err error }
+
+// diffMsg carries a loaded diff for one file.
+type diffMsg struct {
+	path string
+	body string
+}
+
+// generatedMsg carries a finished commit message.
+type generatedMsg struct{ message string }
 
 // applyStartupSelection selects staged files if anything is staged, otherwise
 // everything.

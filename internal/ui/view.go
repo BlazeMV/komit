@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 const helpLine = "space sel · a all · d diff · g gen · r regen · e edit · c commit · P push · q quit"
@@ -27,10 +28,16 @@ func (m Model) render() string {
 	if len(m.items) == 0 {
 		b.WriteString(dimStyle.Render("no changes in this repository"))
 		b.WriteString("\n\n")
+	} else if m.showDiff {
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, paneStyle.Render(m.fileList()), paneStyle.Render(m.diffPane())))
+		b.WriteString("\n")
 	} else {
 		b.WriteString(m.fileList())
 		b.WriteString("\n")
 	}
+
+	b.WriteString(m.msgInput.View())
+	b.WriteString("\n")
 
 	if m.err != nil {
 		b.WriteString(errStyle.Render(m.err.Error()))
@@ -53,6 +60,13 @@ func (m Model) branchLine() string {
 		s += fmt.Sprintf(" ↓%d", m.branch.Behind)
 	}
 	return s
+}
+
+func (m Model) diffPane() string {
+	if m.diffPath == "" {
+		return dimStyle.Render("loading diff…")
+	}
+	return titleStyle.Render(m.diffPath) + "\n" + m.diff.View()
 }
 
 func (m Model) fileList() string {
