@@ -12,7 +12,9 @@ const helpLine = "space sel · a all · d diff · g gen · r regen · e edit · 
 
 // View satisfies tea.Model, which renders a View (not a string) as of v2.
 func (m Model) View() tea.View {
-	return tea.NewView(m.render())
+	v := tea.NewView(m.render())
+	v.AltScreen = true
+	return v
 }
 
 func (m Model) render() string {
