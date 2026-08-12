@@ -21,10 +21,11 @@ Design spec: [`komit.md`](komit.md).
 | `charm.land/bubbletea/v2` | v2.0.8 |
 | `charm.land/bubbles/v2` | v2.1.1 |
 | `charm.land/lipgloss/v2` | v2.0.6 |
-| `charm.land/x/exp/teatest/v2` | latest |
+| `github.com/charmbracelet/x/exp/teatest/v2` | latest |
 | `gopkg.in/yaml.v3` | v3.0.1 |
 
 - **Code comments follow the user's CLAUDE.md policy**, which is stricter than the comments shown in this plan's snippets: default to none; only for non-obvious or shady code; hard cap 2 lines of prose including docblocks; state the invariant and what breaks if violated — never the mechanism, the call chain, or why this approach was picked over another. If a comment in a snippet exceeds that, shorten it when you write the file.
+- **teatest is the exception to the vanity path.** `charm.land/x/exp/teatest/v2` resolves in the module index but its `go.mod` still declares `github.com/charmbracelet/x/exp/teatest/v2`, so importing the vanity path fails with `module declares its path as:`. Charm's migration is partial — use the github path for teatest only.
 - **There is no `tea.WithAltScreen()` in v2.** Alt screen is a field on the view: set `v.AltScreen = true` inside `View()`. Passing it as a program option does not compile.
 - **`tea.Model` in v2 is `Init() Cmd`, `Update(Msg) (Model, Cmd)`, `View() View`** — note `View()` returns `tea.View`, NOT a string (verified against v2.0.8 source). Keep the layout in `render() string` and make `View()` a thin `tea.NewView(m.render())` wrapper; tests assert on `m.View().Content`.
 - Key handling matches on `tea.KeyMsg.String()`. Verified against v2.0.8: a rune key yields `"g"`, shifted yields `"A"`, and **space yields `"space"`, not `" "`**. `tea.KeyMsg` is an interface in v2 satisfied by `tea.KeyPressMsg`, so `case tea.KeyMsg:` in a type switch still works.
