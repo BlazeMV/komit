@@ -10,6 +10,19 @@ Requires the `claude` CLI on PATH. komit shells out to it in headless mode and u
 go install github.com/BlazeMV/komit/cmd/komit@latest
 ```
 
+## Build from source
+
+Requires Go 1.25 or later.
+
+```
+git clone https://github.com/BlazeMV/komit.git
+cd komit
+go build -o komit ./cmd/komit
+go test ./... -race
+```
+
+`go install ./cmd/komit` puts it on your PATH. `CLAUDE.md` covers the stack quirks worth knowing before changing anything.
+
 ## Keys
 
 | Key | Action |
