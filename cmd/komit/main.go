@@ -1,0 +1,102 @@
+// Command komit is a TUI for selecting changed files and committing them with a
+// Claude-generated message.
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/BlazeMV/komit/internal/ai"
+	"github.com/BlazeMV/komit/internal/config"
+	"github.com/BlazeMV/komit/internal/git"
+	"github.com/BlazeMV/komit/internal/ui"
+)
+
+// version is set by the linker at release time.
+var version = "dev"
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "--version", "-v", "version":
+			fmt.Fprintf(stdout, "komit %s\n", version)
+			return 0
+		case "init":
+			if err := initConfig(stdout); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			return 0
+		default:
+			fmt.Fprintf(stderr, "unknown argument %q — usage: komit [init|--version]\n", args[0])
+			return 2
+		}
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	repo, err := git.Open(cwd)
+	if err != nil {
+		fmt.Fprintln(stderr, "not a git repository (or git is not installed)")
+		return 1
+	}
+	cfg, err := config.Load(repo.Dir)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	p := tea.NewProgram(ui.New(repo, cfg, ai.CLI{}))
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+// initConfig writes the built-in defaults to the user config path, refusing to
+// overwrite an existing file.
+func initConfig(stdout io.Writer) error {
+	path, err := config.UserPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s already exists", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	cfg := config.Default()
+	body := fmt.Sprintf("model: %s\nprompt: |\n", cfg.Model)
+	for _, line := range splitLines(cfg.Prompt) {
+		body += "  " + line + "\n"
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "wrote %s\n", path)
+	return nil
+}
+
+func splitLines(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, s[start:])
+}
