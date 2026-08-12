@@ -64,6 +64,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.err = msg.err
 		m.busy = false
+		m.cancel = nil
 		return m, nil
 
 	case diffMsg:
@@ -77,6 +78,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case generatedMsg:
 		m.busy = false
+		m.cancel = nil
 		m.msgInput.SetValue(msg.message)
 		return m, nil
 
@@ -190,14 +192,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyEditor:
 		return m, m.openEditor()
 	case keyGenerate:
+		if m.busy {
+			return m, nil
+		}
 		return m, m.generate("")
 	case keyRegen:
+		if m.busy {
+			return m, nil
+		}
 		m.nudging = true
 		m.nudge.SetValue("")
 		return m, m.nudge.Focus()
 	case keyCommit:
+		if m.busy {
+			return m, nil
+		}
 		return m, m.commit(false)
 	case keyPush:
+		if m.busy {
+			return m, nil
+		}
 		return m, m.commit(true)
 	case keyAmend:
 		if !m.amend && m.headPushed {
@@ -208,6 +222,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyCancel:
 		if m.busy && m.cancel != nil {
 			m.cancel()
+			m.cancel = nil
 			m.busy = false
 			m.status = "generation cancelled"
 		}
@@ -299,6 +314,7 @@ func (m *Model) generate(nudge string) tea.Cmd {
 	paths := m.selectedPaths()
 	if len(paths) == 0 {
 		m.status = "no files selected"
+		m.err = nil
 		return nil
 	}
 
@@ -361,10 +377,12 @@ func (m *Model) commit(push bool) tea.Cmd {
 	paths := m.selectedPaths()
 	if len(paths) == 0 {
 		m.status = "no files selected"
+		m.err = nil
 		return nil
 	}
 	if m.message() == "" {
 		m.status = "write a message first — g to generate, e to type"
+		m.err = nil
 		return nil
 	}
 
@@ -374,7 +392,7 @@ func (m *Model) commit(push bool) tea.Cmd {
 	m.busy = true
 	m.err = nil
 
-	return func() tea.Msg {
+	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		cleanup := func() {}
 		if len(untracked) > 0 {
 			c, err := repo.MarkIntent(untracked)
@@ -400,5 +418,5 @@ func (m *Model) commit(push bool) tea.Cmd {
 			summary += " and pushed"
 		}
 		return committedMsg{summary: summary}
-	}
+	})
 }
