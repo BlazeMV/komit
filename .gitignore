@@ -1,5 +1,6 @@
 # binaries and build output
 /komit
+cmd/komit/komit
 dist/
 
 # go
