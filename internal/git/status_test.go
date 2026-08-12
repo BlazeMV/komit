@@ -29,6 +29,19 @@ func TestParseStatus(t *testing.T) {
 			want: []FileChange{{Index: 'R', Worktree: ' ', Path: "new.go", Orig: "old.go"}},
 		},
 		{
+			name: "copy carries original path",
+			in:   "C  copy.go\x00orig.go\x00",
+			want: []FileChange{{Index: 'C', Worktree: ' ', Path: "copy.go", Orig: "orig.go"}},
+		},
+		{
+			name: "stray empty token between entries is skipped",
+			in:   "M  a.go\x00\x00?? b.go\x00",
+			want: []FileChange{
+				{Index: 'M', Worktree: ' ', Path: "a.go"},
+				{Index: '?', Worktree: '?', Path: "b.go"},
+			},
+		},
+		{
 			name: "path with spaces is not split",
 			in:   " M a file with spaces.go\x00",
 			want: []FileChange{{Index: ' ', Worktree: 'M', Path: "a file with spaces.go"}},

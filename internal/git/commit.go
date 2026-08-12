@@ -60,7 +60,7 @@ func (r *Repo) BranchState() (Branch, error) {
 
 	counts, err := r.run("rev-list", "--left-right", "--count", b.Upstream+"...HEAD")
 	if err != nil {
-		return b, nil
+		return b, err
 	}
 	fields := strings.Fields(counts)
 	if len(fields) == 2 {

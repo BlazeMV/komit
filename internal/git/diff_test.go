@@ -165,6 +165,19 @@ func TestDiffUntrackedNeitherLocksNorRewritesTheIndex(t *testing.T) {
 	}
 }
 
+// E1: `git diff --no-index` also exits 1 for a real failure (e.g. the path
+// vanished between the status refresh and the diff load); that must not be
+// swallowed as if the sides simply differed.
+func TestDiffUntrackedSurfacesAccessFailure(t *testing.T) {
+	r := newRepo(t)
+	write(t, r, "a.go", "1\n")
+	commitAll(t, r, "init")
+
+	if _, err := r.DiffUntracked("does-not-exist.go"); err == nil {
+		t.Fatal("DiffUntracked on a vanished path returned no error")
+	}
+}
+
 func TestDiffUntrackedMatchesTheIntentToAddDiff(t *testing.T) {
 	r := newRepo(t)
 	write(t, r, "a.go", "1\n")

@@ -217,6 +217,28 @@ func TestBranchStateAheadOfUpstream(t *testing.T) {
 	}
 }
 
+// D2: rev-list's count fails after the upstream itself resolved fine — that
+// is a real problem, not the "no upstream configured" case.
+func TestBranchStateSurfacesCountFailureAfterUpstreamResolves(t *testing.T) {
+	r := newRepo(t)
+	write(t, r, "a.go", "1\n")
+	commitAll(t, r, "init")
+
+	remote := t.TempDir()
+	gitDo(t, r, "init", "--bare", "--quiet", remote)
+	gitDo(t, r, "remote", "add", "origin", remote)
+	gitDo(t, r, "push", "--quiet", "-u", "origin", "master")
+
+	ref := filepath.Join(r.Dir, ".git", "refs", "remotes", "origin", "master")
+	if err := os.WriteFile(ref, []byte("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := r.BranchState(); err == nil {
+		t.Fatal("BranchState swallowed a rev-list failure after the upstream resolved")
+	}
+}
+
 // C2: rev-parse --abbrev-ref HEAD exits 128 before the first commit.
 func TestBranchStateOnUnbornBranch(t *testing.T) {
 	r := newRepo(t)

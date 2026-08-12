@@ -67,7 +67,7 @@ func (r *Repo) runTolerating(code int, args ...string) (string, error) {
 	out, err := r.run(args...)
 	var gitErr *Error
 	var exitErr *exec.ExitError
-	if errors.As(err, &gitErr) && errors.As(gitErr.Err, &exitErr) && exitErr.ExitCode() == code {
+	if errors.As(err, &gitErr) && errors.As(gitErr.Err, &exitErr) && exitErr.ExitCode() == code && gitErr.Stderr == "" {
 		return out, nil
 	}
 	return out, err
