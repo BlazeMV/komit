@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/BlazeMV/komit/internal/ai"
 	"github.com/BlazeMV/komit/internal/config"
 	"github.com/BlazeMV/komit/internal/git"
 )
@@ -114,6 +115,26 @@ func TestAmendToggles(t *testing.T) {
 	m = update(m, key("A"))
 	if m.amend {
 		t.Error("amend did not toggle off")
+	}
+}
+
+// C: claude missing from PATH gets an install hint, not a bare error.
+func TestGenerationMissingClaudeShowsInstallHint(t *testing.T) {
+	m := newTestModel(t, &fakeRunner{err: ai.ErrMissing})
+
+	next, cmd := m.Update(key("g"))
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("g produced no command")
+	}
+	m = update(m, drain(t, cmd))
+
+	out := m.View().Content
+	if !strings.Contains(out, "not found on PATH") || !strings.Contains(out, "install") {
+		t.Errorf("view does not show the missing-claude install hint:\n%s", out)
+	}
+	if !strings.Contains(out, "$EDITOR") {
+		t.Errorf("view does not mention writing the message by hand:\n%s", out)
 	}
 }
 
