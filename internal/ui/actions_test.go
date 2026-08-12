@@ -543,6 +543,34 @@ func TestSupersededGenerationResultIsIgnored(t *testing.T) {
 	}
 }
 
+// B: an untagged error (epoch 0) — e.g. a transient failure loading a diff
+// while a generation is in flight — must not disarm that generation's cancel.
+func TestUntaggedErrorDoesNotDisarmALiveGeneration(t *testing.T) {
+	runner := &fakeRunner{out: "feat: thing"}
+	m := newTestModel(t, runner)
+
+	next, cmd := m.Update(key("g"))
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("g produced no command")
+	}
+	if m.cancel == nil {
+		t.Fatal("precondition: cancel should be set while generation is in flight")
+	}
+
+	m = update(m, errMsg{err: errFake{}}) // epoch 0: e.g. loadDiff's error
+
+	if !m.busy {
+		t.Error("an untagged error cleared busy for a live generation")
+	}
+	if m.cancel == nil {
+		t.Error("an untagged error cleared cancel for a live generation")
+	}
+	if m.err == nil || m.err.Error() != "boom" {
+		t.Errorf("the untagged error was not recorded: %v", m.err)
+	}
+}
+
 func TestCancelledGenerationKeepsItsStatus(t *testing.T) {
 	m := newTestModel(t, &fakeRunner{out: "x"})
 

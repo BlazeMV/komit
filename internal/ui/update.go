@@ -63,8 +63,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = msg.err
-		m.busy = false
-		m.cancel = nil
+		if msg.epoch != 0 {
+			m.busy = false
+			m.cancel = nil
+		}
 		return m, nil
 
 	case diffMsg:
