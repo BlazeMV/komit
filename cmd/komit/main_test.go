@@ -75,7 +75,7 @@ func TestInitDoesNotClobberExistingConfig(t *testing.T) {
 	}
 }
 
-func TestInitIsAtomic(t *testing.T) {
+func TestSecondInitLeavesTheFirstConfigIntact(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)
 
