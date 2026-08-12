@@ -10,13 +10,7 @@ Requires the `claude` CLI on PATH. komit shells out to it in headless mode and u
 go install github.com/BlazeMV/komit/cmd/komit@latest
 ```
 
-## Update
-
-```
-go install github.com/BlazeMV/komit/cmd/komit@latest
-```
-
-Re-running the install command replaces the binary in place. `komit --version` reports what you have; releases are at https://github.com/BlazeMV/komit/releases.
+Re-run the same command to update; it replaces the binary in place. `komit --version` reports what you have, and [releases](https://github.com/BlazeMV/komit/releases) lists what is current.
 
 ## Build from source
 
