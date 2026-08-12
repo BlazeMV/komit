@@ -7,7 +7,7 @@ Requires the `claude` CLI on PATH. komit shells out to it in headless mode and u
 ## Install
 
 ```
-go install github.com/BlazeMV/komit@latest
+go install github.com/BlazeMV/komit/cmd/komit@latest
 ```
 
 ## Keys
@@ -16,6 +16,7 @@ go install github.com/BlazeMV/komit@latest
 | --- | --- |
 | `space` | select |
 | `a` | all |
+| `↑` `↓` / `k` `j` | move |
 | `d` | diff pane |
 | `tab` | cycle focus |
 | `g` | generate |
