@@ -16,11 +16,11 @@ import (
 )
 
 func (m Model) Init() tea.Cmd {
-	return m.loadStatus()
+	return tea.Batch(m.loadStatus(false), m.schedulePoll())
 }
 
 // loadStatus refreshes the working tree and branch state off the UI goroutine.
-func (m Model) loadStatus() tea.Cmd {
+func (m Model) loadStatus(preserve bool) tea.Cmd {
 	repo := m.repo
 	return func() tea.Msg {
 		files, err := repo.Status()
@@ -31,8 +31,19 @@ func (m Model) loadStatus() tea.Cmd {
 		// leave the file list empty forever on a repo with no commits.
 		branch, _ := repo.BranchState()
 		headPushed, _ := repo.HeadPushed()
-		return statusMsg{files: files, branch: branch, headPushed: headPushed}
+		return statusMsg{files: files, branch: branch, headPushed: headPushed, preserve: preserve}
 	}
+}
+
+// schedulePoll queues the next beat of the poll chain, tagged with the current
+// generation so a blur or a re-focus can strand it.
+func (m Model) schedulePoll() tea.Cmd {
+	every := m.cfg.Refresh.Every()
+	if every == 0 {
+		return nil
+	}
+	gen := m.pollGen
+	return tea.Tick(every, func(time.Time) tea.Msg { return refreshTickMsg{gen: gen} })
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -52,11 +63,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i, f := range msg.files {
 			items[i] = item{FileChange: f}
 		}
-		m.items = applyStartupSelection(items)
+		var under string
+		if len(m.items) > 0 {
+			under = m.items[m.cursor].Path
+		}
+		if msg.preserve {
+			m.items = mergeSelection(m.items, items)
+		} else {
+			m.items = applyStartupSelection(items)
+		}
 		m.branch = msg.branch
 		m.headPushed = msg.headPushed
-		m.moveCursor(0)
+		m.focusPath(under)
+		if m.showDiff {
+			return m, m.loadDiff()
+		}
 		return m, nil
+
+	case tea.FocusMsg:
+		m.focused = true
+		m.pollGen++
+		cmds := []tea.Cmd{m.schedulePoll()}
+		if m.cfg.Refresh.OnFocus && !m.busy {
+			cmds = append(cmds, m.loadStatus(true))
+		}
+		return m, tea.Batch(cmds...)
+
+	case tea.BlurMsg:
+		// The in-flight tick still lands; it finds focused false and ends the
+		// chain there, so the poll costs nothing until focus comes back.
+		m.focused = false
+		return m, nil
+
+	case refreshTickMsg:
+		if msg.gen != m.pollGen || !m.focused {
+			return m, nil
+		}
+		if m.busy {
+			return m, m.schedulePoll()
+		}
+		return m, tea.Batch(m.loadStatus(true), m.schedulePoll())
 
 	case errMsg:
 		if !m.current(msg.epoch) {
@@ -73,9 +119,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.items) == 0 || msg.path != m.items[m.cursor].Path {
 			return m, nil
 		}
+		// Only a different file rewinds the scroll; a refresh reloading the diff
+		// you are reading used to yank it back to the top.
+		fresh := msg.path != m.diffPath
 		m.diffPath = msg.path
 		m.diff.SetContent(msg.body)
-		m.diff.GotoTop()
+		if fresh {
+			m.diff.GotoTop()
+		}
 		return m, nil
 
 	case generatedMsg:
@@ -94,7 +145,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.amend = false
 		m.status = msg.summary
 		m.err = msg.err
-		return m, m.loadStatus()
+		return m, m.loadStatus(false)
 
 	case spinner.TickMsg:
 		if !m.busy {
@@ -220,6 +271,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		cmd := m.generate("")
 		return m, cmd
+	case keyRefresh:
+		if m.busy {
+			return m, nil
+		}
+		m.status = "refreshed"
+		m.err = nil
+		return m, m.loadStatus(true)
 	case keyRegen:
 		if m.busy {
 			return m, nil

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // withConfigHome points XDG_CONFIG_HOME at a temp dir and optionally writes a
@@ -88,6 +89,52 @@ func TestRepoConfigOverridesGlobal(t *testing.T) {
 	}
 	if cfg.Model != "sonnet" {
 		t.Errorf("Model = %q, want sonnet carried over from global", cfg.Model)
+	}
+}
+
+func TestDefaultRefreshPollsAndFollowsFocus(t *testing.T) {
+	r := Default().Refresh
+	if !r.OnFocus {
+		t.Error("on_focus is off by default")
+	}
+	if r.Every() != 10*time.Second {
+		t.Errorf("Every = %v, want 10s", r.Every())
+	}
+}
+
+func TestRefreshOverridesOnlyKeysItSets(t *testing.T) {
+	withConfigHome(t, "refresh:\n  interval: 30\n")
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Refresh.Every() != 30*time.Second {
+		t.Errorf("Every = %v, want 30s", cfg.Refresh.Every())
+	}
+	if !cfg.Refresh.OnFocus {
+		t.Error("on_focus was clobbered by a config that only set interval")
+	}
+}
+
+func TestRefreshCanBeTurnedOffEntirely(t *testing.T) {
+	withConfigHome(t, "refresh:\n  on_focus: false\n  interval: 0\n")
+
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Refresh.OnFocus {
+		t.Error("on_focus stayed on")
+	}
+	if cfg.Refresh.Every() != 0 {
+		t.Errorf("Every = %v, want 0 to disable polling", cfg.Refresh.Every())
+	}
+}
+
+func TestRefreshEveryTreatsNegativeAsOff(t *testing.T) {
+	if got := (Refresh{Interval: -5}).Every(); got != 0 {
+		t.Errorf("Every = %v, want 0", got)
 	}
 }
 

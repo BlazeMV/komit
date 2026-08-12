@@ -80,7 +80,8 @@ func initConfig(stdout io.Writer) error {
 		return err
 	}
 	cfg := config.Default()
-	body := fmt.Sprintf("model: %s\nprompt: |\n", cfg.Model)
+	body := fmt.Sprintf("model: %s\nrefresh:\n  on_focus: %t\n  interval: %d\nprompt: |\n",
+		cfg.Model, cfg.Refresh.OnFocus, cfg.Refresh.Interval)
 	for _, line := range splitLines(cfg.Prompt) {
 		body += "  " + line + "\n"
 	}

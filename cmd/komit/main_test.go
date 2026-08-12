@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BlazeMV/komit/internal/config"
 )
 
 func TestVersionFlag(t *testing.T) {
@@ -50,6 +52,34 @@ func TestInitWritesDefaultConfig(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), path) {
 		t.Errorf("stdout = %q, want the written path", out.String())
+	}
+}
+
+// initConfig hand-builds the YAML, so it can drift from the embedded defaults.
+func TestInitWritesEveryDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"init"}, &out, &errOut); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, errOut.String())
+	}
+
+	// Load reads the file just written, so a missing key shows up as a default.
+	got, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got != config.Default() {
+		t.Errorf("round-tripped config = %+v, want the defaults %+v", got, config.Default())
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, "komit", "config.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "refresh:") {
+		t.Errorf("written config has no refresh block:\n%s", data)
 	}
 }
 

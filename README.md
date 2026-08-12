@@ -41,6 +41,7 @@ go test ./... -race
 | `A` | amend |
 | `c` | commit |
 | `P` | commit and push |
+| `R` | refresh the change list |
 | `esc` | cancel |
 | `q` | quit |
 
@@ -54,6 +55,9 @@ Config lives at `$XDG_CONFIG_HOME/komit/config.yml` (else `~/.config/komit/confi
 
 ```yaml
 model: haiku
+refresh:
+  on_focus: true
+  interval: 10
 prompt: |
   Write a git commit message for the diff below.
 
@@ -71,6 +75,10 @@ prompt: |
   Diff:
   {{diff}}
 ```
+
+`refresh` controls how the change list picks up edits made outside komit. `on_focus` reloads it when the terminal regains focus; `interval` is the seconds between background polls, which run only while komit has focus and pause while it is generating or committing. Set `interval: 0` to poll only when you press `R`.
+
+A refresh keeps your selection: files you ticked stay ticked, and a file that appears joins the selection only if everything was already selected. A commit is the exception — it re-applies the startup rule to whatever is left.
 
 ## Uninstall
 

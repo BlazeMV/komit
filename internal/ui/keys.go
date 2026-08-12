@@ -10,6 +10,7 @@ const (
 	keyDiff      = "d"
 	keyGenerate  = "g"
 	keyRegen     = "r"
+	keyRefresh   = "R"
 	keyEdit      = "e"
 	keyEditor    = "E"
 	keyAmend     = "A"

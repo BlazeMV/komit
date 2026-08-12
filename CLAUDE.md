@@ -25,6 +25,14 @@ The promise: komit never leaves the user's index dirtier than it found it. Anyth
 - Generations are epoch-tagged; a superseded generation's result is ignored. Errors clear `busy`/`cancel` only for the current epoch.
 - Refusal branches clear `m.err` — the view ranks `err` above `status`, so a stale error masks the refusal otherwise.
 
+## Refresh
+
+- `statusMsg.preserve` picks the selection rule: startup and post-commit reset via `applyStartupSelection`, everything else merges via `mergeSelection`. A poll that reset would wipe the selection every interval.
+- The poll is a self-rescheduling `tea.Tick` chain tagged with `pollGen`. `FocusMsg` bumps the generation before scheduling, which strands any tick still in flight — two live chains would double the rate.
+- `BlurMsg` only clears `focused`; the in-flight tick lands, sees it, and ends the chain. Nothing else stops the poll.
+- `focused` starts true so terminals that never report focus still poll.
+- `diffMsg` rewinds the viewport only when the path changed — a refresh reloading the same diff would otherwise yank the scroll to the top every interval.
+
 ## Tests
 
 - `go test ./... -race`

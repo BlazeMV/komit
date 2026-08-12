@@ -557,7 +557,7 @@ func TestLoadStatusInRepoWithNoCommits(t *testing.T) {
 	m := New(repo, config.Config{}, &fakeRunner{})
 	m.width, m.height = 100, 30
 
-	msg := m.loadStatus()()
+	msg := m.loadStatus(false)()
 	st, ok := msg.(statusMsg)
 	if !ok {
 		t.Fatalf("msg = %#v, want statusMsg in a repository with no commits", msg)

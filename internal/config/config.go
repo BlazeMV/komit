@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,10 +16,25 @@ import (
 //go:embed default.yml
 var defaultYAML []byte
 
+// Refresh controls how the change list picks up work done outside komit.
+type Refresh struct {
+	OnFocus  bool `yaml:"on_focus"`
+	Interval int  `yaml:"interval"` // seconds between polls; 0 disables them
+}
+
+// Every is Interval as a duration, or 0 when polling is off.
+func (r Refresh) Every() time.Duration {
+	if r.Interval <= 0 {
+		return 0
+	}
+	return time.Duration(r.Interval) * time.Second
+}
+
 // Config is komit's entire configuration surface.
 type Config struct {
-	Model  string `yaml:"model"`
-	Prompt string `yaml:"prompt"`
+	Model   string  `yaml:"model"`
+	Prompt  string  `yaml:"prompt"`
+	Refresh Refresh `yaml:"refresh"`
 }
 
 // RepoFile is the per-repository override read from the repo root.

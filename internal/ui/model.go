@@ -54,6 +54,10 @@ type Model struct {
 	nudging  bool
 	nudge    textinput.Model
 
+	// focused starts true so terminals that never report focus keep polling.
+	focused bool
+	pollGen int
+
 	width, height int
 }
 
@@ -73,6 +77,7 @@ func New(repo *git.Repo, cfg config.Config, runner ai.Runner) Model {
 		msgInput: newMessageInput(),
 		spinner:  sp,
 		nudge:    ni,
+		focused:  true,
 	}
 }
 
@@ -88,12 +93,18 @@ func (m Model) message() string {
 	return strings.TrimSpace(m.msgInput.Value())
 }
 
-// statusMsg carries a refreshed working-tree state.
+// statusMsg carries a refreshed working-tree state. preserve carries the
+// current selection over; without it the startup rule reapplies.
 type statusMsg struct {
 	files      []git.FileChange
 	branch     git.Branch
 	headPushed bool
+	preserve   bool
 }
+
+// refreshTickMsg is one beat of the background poll. A tick from a superseded
+// chain carries a stale gen and is dropped, so focus changes cannot stack loops.
+type refreshTickMsg struct{ gen int }
 
 // errMsg carries a failure to display without tearing the TUI down. A non-zero
 // epoch ties it to one generation; anything else is always applied.
@@ -145,6 +156,40 @@ func applyStartupSelection(in []item) []item {
 		}
 	}
 	return in
+}
+
+// mergeSelection carries the current selection across a refresh, keyed by path.
+// A file that was not in the list arrives selected only when every file already
+// was — an empty list counts, so the first change in a clean repo comes ticked.
+func mergeSelection(old, fresh []item) []item {
+	was := make(map[string]bool, len(old))
+	all := true
+	for _, it := range old {
+		was[it.Path] = it.selected
+		if !it.selected {
+			all = false
+		}
+	}
+	for i := range fresh {
+		if selected, ok := was[fresh[i].Path]; ok {
+			fresh[i].selected = selected
+		} else {
+			fresh[i].selected = all
+		}
+	}
+	return fresh
+}
+
+// focusPath puts the cursor back on path across a refresh, clamping to the old
+// index when that file is gone.
+func (m *Model) focusPath(path string) {
+	for i, it := range m.items {
+		if it.Path == path {
+			m.cursor = i
+			return
+		}
+	}
+	m.moveCursor(0)
 }
 
 func (m *Model) toggle() {

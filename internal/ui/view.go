@@ -10,7 +10,7 @@ import (
 	"github.com/BlazeMV/komit/internal/ai"
 )
 
-const helpLine = "space sel · a all · d diff · g gen · r regen · e edit · c commit · P push · q quit"
+const helpLine = "space sel · a all · d diff · g gen · r regen · e edit · c commit · P push · R refresh · q quit"
 
 const claudeMissingHint = "claude CLI not found on PATH — install it, or write the message yourself: e to edit, E for $EDITOR"
 
@@ -18,6 +18,7 @@ const claudeMissingHint = "claude CLI not found on PATH — install it, or write
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
+	v.ReportFocus = true
 	return v
 }
 
