@@ -433,6 +433,62 @@ func TestFailedCommitWithUntrackedSelectedCleansUpIndex(t *testing.T) {
 	}
 }
 
+// E2: a requested push must still happen even when the post-commit intent
+// cleanup fails, and the failure must not be swallowed.
+func TestPushStillHappensWhenPostCommitCleanupFails(t *testing.T) {
+	dir := gitInit(t)
+	writeRepoFile(t, dir, "a.go", "1\n")
+	commitAllRepo(t, dir, "init")
+
+	remote := t.TempDir()
+	gitRun(t, remote, "init", "--bare", "--quiet")
+	gitRun(t, dir, "remote", "add", "origin", remote)
+	gitRun(t, dir, "push", "--quiet", "-u", "origin", "master")
+
+	writeRepoFile(t, dir, "new.go", "package main\n")
+	// A post-commit hook plants a stale index.lock so unmark(nil) — the
+	// `git reset` that runs right after Commit returns — fails.
+	writeHook(t, dir, "post-commit", "touch .git/index.lock")
+
+	repo, err := git.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(repo, config.Config{}, &fakeRunner{})
+	m.width, m.height = 100, 30
+	m = update(m, statusMsg{
+		files:  []git.FileChange{{Path: "new.go", Index: '?', Worktree: '?'}},
+		branch: git.Branch{Name: "master"},
+	})
+	m.msgInput.SetValue("add new")
+
+	_, cmd := m.Update(key("P"))
+	if cmd == nil {
+		t.Fatal("P produced no command")
+	}
+	msg := drain(t, cmd)
+
+	if err := os.Remove(filepath.Join(dir, ".git", "index.lock")); err != nil {
+		t.Fatal(err)
+	}
+
+	cm, ok := msg.(committedMsg)
+	if !ok {
+		t.Fatalf("msg = %#v, want committedMsg", msg)
+	}
+	if cm.err == nil {
+		t.Error("committedMsg does not surface the cleanup failure")
+	}
+	if !strings.Contains(cm.summary, "pushed") {
+		t.Errorf("summary = %q, want the push to still have happened despite the cleanup failure", cm.summary)
+	}
+
+	pushed := gitRun(t, remote, "log", "-1", "--format=%s")
+	if strings.TrimSpace(pushed) != "add new" {
+		t.Errorf("remote HEAD = %q, want the push to have landed", pushed)
+	}
+}
+
 // blockingRunner parks a generation in flight until its context is cancelled.
 type blockingRunner struct{ started chan struct{} }
 

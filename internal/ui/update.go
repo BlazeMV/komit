@@ -477,14 +477,15 @@ func (m *Model) commit(push bool) tea.Cmd {
 		}
 		// Past this point the commit has landed, so nothing may report an errMsg:
 		// it would keep the message and amend flag as if it had not.
-		if err := unmark(nil); err != nil {
-			return committedMsg{summary: summary, err: err}
-		}
+		unmarkErr := unmark(nil)
 		if push {
 			if err := repo.Push(); err != nil {
-				return committedMsg{summary: summary + ", push failed", err: err}
+				return committedMsg{summary: summary + ", push failed", err: errors.Join(unmarkErr, err)}
 			}
 			summary += " and pushed"
+		}
+		if unmarkErr != nil {
+			return committedMsg{summary: summary, err: unmarkErr}
 		}
 		return committedMsg{summary: summary}
 	})
