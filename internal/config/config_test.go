@@ -25,6 +25,22 @@ func withConfigHome(t *testing.T, contents string) {
 	}
 }
 
+// D3: without XDG_CONFIG_HOME, UserPath falls back to ~/.config.
+func TestUserPathFallsBackToHomeConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	got, err := UserPath()
+	if err != nil {
+		t.Fatalf("UserPath: %v", err)
+	}
+	want := filepath.Join(home, ".config", "komit", "config.yml")
+	if got != want {
+		t.Errorf("UserPath = %q, want %q", got, want)
+	}
+}
+
 func TestLoadDefaultsWhenNothingConfigured(t *testing.T) {
 	withConfigHome(t, "")
 
