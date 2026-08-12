@@ -2534,7 +2534,9 @@ git commit -m "wire bubbletea loop with file list view"
 
 **Interfaces:**
 - Consumes: Task 9's loop
-- Produces: `diffMsg` type, `func (m Model) loadDiff() tea.Cmd`, fields `diff viewport.Model`, `msgInput textarea.Model`, `showDiff bool`; `d` toggles the pane, `tab` cycles focus, `e` focuses the editor, `E` shells out to `$EDITOR`
+- Produces: `diffMsg` type, `func (m Model) loadDiff() tea.Cmd`, `func (m Model) resizePanes()`, `nextFocus`/`moveFocus` focus helpers, fields `diff viewport.Model`, `msgInput textarea.Model`, `showDiff bool`, `diffPath string`; `d` toggles the pane, `tab` cycles focus (skipping `focusDiff` while hidden, routing keys to `m.diff.Update` while focused), `e` focuses the editor, `E` shells out to `$EDITOR`
+- `diffMsg` is discarded unless its path matches the file under the cursor — two in-flight loads can resolve out of order.
+- Panes must be sized from `resizePanes()` called at the top of `Update`, not only in the `tea.WindowSizeMsg` case: a zero-sized viewport renders as an empty string.
 
 - [ ] **Step 1: Write the failing test**
 
