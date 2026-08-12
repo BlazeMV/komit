@@ -3467,9 +3467,10 @@ func initConfig(stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("%s already exists", path)
-	}
+	// O_EXCL is what decides: a bare Stat+WriteFile truncates a file that
+	// appears in between, destroying the user's prompt.
+	// (create with os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644),
+	// treat os.IsExist as "already exists", and os.Remove on a failed write)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
