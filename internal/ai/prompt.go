@@ -3,6 +3,7 @@ package ai
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -36,24 +37,13 @@ func TruncateDiff(diff string) string {
 
 	out := b.String()
 	if len(out) > MaxDiffBytes {
-		// Find a slice position that keeps total output within MaxDiffBytes.
-		// The marker length depends on how many bytes we omit.
-		slicePos := MaxDiffBytes - 50 // Conservative initial estimate
-		for {
-			omitted := len(out) - slicePos
-			marker := fmt.Sprintf("\n... [diff truncated, %d bytes omitted]\n", omitted)
-			if slicePos+len(marker) <= MaxDiffBytes {
-				out = out[:slicePos] + marker
-				break
-			}
-			slicePos--
-			if slicePos < 0 {
-				slicePos = 0
-				marker := fmt.Sprintf("\n... [diff truncated, %d bytes omitted]\n", len(out))
-				out = marker
-				break
-			}
-		}
+		// Ensure truncated result stays within MaxDiffBytes.
+		omitted := len(out) - MaxDiffBytes + 50
+		markerLen := 38 + len(strconv.Itoa(omitted))
+		slicePos := MaxDiffBytes - markerLen
+		omitted = len(out) - slicePos
+		marker := fmt.Sprintf("\n... [diff truncated, %d bytes omitted]\n", omitted)
+		out = out[:slicePos] + marker
 	}
 	return out
 }
