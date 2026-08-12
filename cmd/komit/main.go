@@ -57,15 +57,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	p := tea.NewProgram(ui.New(repo, cfg, ai.CLI{}))
-	if _, err := p.Run(); err != nil {
+	_, runErr := p.Run()
+	// Command goroutines are abandoned on quit, so their cleanup lands here.
+	if err := repo.DrainIntents(); err != nil {
 		fmt.Fprintln(stderr, err)
+	}
+	if runErr != nil {
+		fmt.Fprintln(stderr, runErr)
 		return 1
 	}
 	return 0
 }
 
 // initConfig writes the built-in defaults to the user config path, refusing to
-// overwrite an existing file. Uses atomic file creation to prevent partial writes.
+// overwrite an existing file.
 func initConfig(stdout io.Writer) error {
 	path, err := config.UserPath()
 	if err != nil {

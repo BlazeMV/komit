@@ -2,9 +2,12 @@ package ui
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/BlazeMV/komit/internal/config"
 	"github.com/BlazeMV/komit/internal/git"
 )
@@ -329,6 +332,261 @@ func TestFailedCommitWithUntrackedSelectedCleansUpIndex(t *testing.T) {
 	status := gitRun(t, dir, "status", "--porcelain")
 	if !strings.Contains(status, "?? new.go") {
 		t.Errorf("status = %q, want new.go untracked again after the failed commit", status)
+	}
+}
+
+// blockingRunner parks a generation in flight until its context is cancelled.
+type blockingRunner struct{ started chan struct{} }
+
+func (b *blockingRunner) Run(ctx context.Context, _, _ string) (string, error) {
+	close(b.started)
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+// C1: bubbletea abandons command goroutines on quit, so the deferred cleanup
+// inside generate never runs and the intent-to-add entry survives the process.
+func TestQuitDuringGenerationUndoesIntentToAdd(t *testing.T) {
+	dir := gitInit(t)
+	writeRepoFile(t, dir, "a.go", "1\n")
+	commitAllRepo(t, dir, "init")
+	writeRepoFile(t, dir, "brand-new.go", "package main\n")
+
+	repo, err := git.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &blockingRunner{started: make(chan struct{})}
+	m := New(repo, config.Config{Model: "haiku", Prompt: "{{diff}}"}, runner)
+	m.width, m.height = 100, 30
+	m = update(m, statusMsg{
+		files:  []git.FileChange{{Path: "brand-new.go", Index: '?', Worktree: '?'}},
+		branch: git.Branch{Name: "master"},
+	})
+
+	next, cmd := m.Update(key("g"))
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("g produced no command")
+	}
+	go func() {
+		batch, ok := cmd().(tea.BatchMsg)
+		if !ok {
+			return
+		}
+		for _, c := range batch {
+			go c()
+		}
+	}()
+	<-runner.started
+
+	if status := gitRun(t, dir, "status", "--porcelain"); strings.Contains(status, "?? brand-new.go") {
+		t.Fatalf("precondition: generation should have staged brand-new.go, status = %q", status)
+	}
+
+	m.Update(key("q"))
+
+	if status := gitRun(t, dir, "status", "--porcelain"); !strings.Contains(status, "?? brand-new.go") {
+		t.Errorf("status = %q, want brand-new.go untracked again once quit returns", status)
+	}
+}
+
+// C2: BranchState fails on an unborn branch; the file list must survive it.
+func TestLoadStatusInRepoWithNoCommits(t *testing.T) {
+	dir := gitInit(t)
+	writeRepoFile(t, dir, "first.go", "package main\n")
+
+	repo, err := git.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(repo, config.Config{}, &fakeRunner{})
+	m.width, m.height = 100, 30
+
+	msg := m.loadStatus()()
+	st, ok := msg.(statusMsg)
+	if !ok {
+		t.Fatalf("msg = %#v, want statusMsg in a repository with no commits", msg)
+	}
+	if len(st.files) != 1 || st.files[0].Path != "first.go" {
+		t.Fatalf("files = %+v, want first.go", st.files)
+	}
+	if st.branch.Name != "master" {
+		t.Errorf("branch = %+v, want master", st.branch)
+	}
+
+	m = update(m, st)
+	if !strings.Contains(m.View().Content, "first.go") {
+		t.Errorf("file list is empty in a repository with no commits:\n%s", m.View().Content)
+	}
+}
+
+// C3.1: browsing a diff must not contend for index.lock.
+func TestLoadDiffForUntrackedFileLeavesTheIndexAlone(t *testing.T) {
+	dir := gitInit(t)
+	writeRepoFile(t, dir, "a.go", "1\n")
+	commitAllRepo(t, dir, "init")
+	writeRepoFile(t, dir, "new.go", "package main\n")
+
+	repo, err := git.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(repo, config.Config{}, &fakeRunner{})
+	m.width, m.height = 100, 30
+	m = update(m, statusMsg{
+		files:  []git.FileChange{{Path: "new.go", Index: '?', Worktree: '?'}},
+		branch: git.Branch{Name: "master"},
+	})
+
+	lock := filepath.Join(dir, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msg := m.loadDiff()()
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+
+	dm, ok := msg.(diffMsg)
+	if !ok {
+		t.Fatalf("msg = %#v, want a diffMsg — browsing must not need the index", msg)
+	}
+	if !strings.Contains(dm.body, "package main") {
+		t.Errorf("diff = %q, want the untracked file's content", dm.body)
+	}
+	if status := gitRun(t, dir, "status", "--porcelain"); !strings.Contains(status, "?? new.go") {
+		t.Errorf("status = %q, want new.go still untracked", status)
+	}
+}
+
+// I1: the commit landed, so the list must still refresh and the message clear.
+func TestFailedPushStillReportsTheCommit(t *testing.T) {
+	dir := gitInit(t)
+	writeRepoFile(t, dir, "a.go", "1\n")
+	commitAllRepo(t, dir, "init")
+	writeRepoFile(t, dir, "a.go", "2\n")
+
+	repo, err := git.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(repo, config.Config{}, &fakeRunner{})
+	m.width, m.height = 100, 30
+	m = update(m, statusMsg{
+		files:  []git.FileChange{{Path: "a.go", Index: ' ', Worktree: 'M'}},
+		branch: git.Branch{Name: "master"},
+	})
+	m.msgInput.SetValue("change a")
+
+	_, cmd := m.Update(key("P")) // no upstream configured, so the push fails
+	if cmd == nil {
+		t.Fatal("P produced no command")
+	}
+	msg := drain(t, cmd)
+	cm, ok := msg.(committedMsg)
+	if !ok {
+		t.Fatalf("msg = %#v, want a committedMsg carrying the push failure", msg)
+	}
+	if cm.err == nil {
+		t.Error("committedMsg does not carry the push error")
+	}
+	if subject := strings.TrimSpace(gitRun(t, dir, "log", "-1", "--format=%s")); subject != "change a" {
+		t.Fatalf("HEAD subject = %q, want the commit to have landed", subject)
+	}
+
+	after, refresh := m.Update(cm)
+	if refresh == nil {
+		t.Error("a failed push skipped the status refresh")
+	}
+	am := after.(Model)
+	if am.message() != "" {
+		t.Errorf("message = %q, want it cleared — the commit landed", am.message())
+	}
+	if am.amend {
+		t.Error("amend still set after a commit that landed")
+	}
+	if am.err == nil {
+		t.Error("push failure not shown")
+	}
+}
+
+// I2: generation #1's late result must not disturb generation #2.
+func TestSupersededGenerationResultIsIgnored(t *testing.T) {
+	m := newTestModel(t, &fakeRunner{out: "x"})
+
+	first, _ := m.Update(key("g"))
+	m = first.(Model)
+	staleErr := errMsg{err: errFake{}, epoch: m.epoch}
+	staleGen := generatedMsg{message: "stale message", epoch: m.epoch}
+
+	m = update(m, key("esc"))
+	second, _ := m.Update(key("g"))
+	m = second.(Model)
+
+	m = update(m, staleErr)
+	if !m.busy {
+		t.Error("a superseded error cleared busy for the newer generation")
+	}
+	if m.cancel == nil {
+		t.Error("a superseded error cleared cancel for the newer generation")
+	}
+	if m.err != nil {
+		t.Errorf("a superseded error was displayed: %v", m.err)
+	}
+
+	m.msgInput.SetValue("typed while generating")
+	m = update(m, staleGen)
+	if m.message() != "typed while generating" {
+		t.Errorf("message = %q, want the user's own text kept", m.message())
+	}
+}
+
+func TestCancelledGenerationKeepsItsStatus(t *testing.T) {
+	m := newTestModel(t, &fakeRunner{out: "x"})
+
+	next, _ := m.Update(key("g"))
+	m = next.(Model)
+	stale := errMsg{err: context.Canceled, epoch: m.epoch}
+
+	m = update(m, key("esc"))
+	m = update(m, stale)
+
+	if !strings.Contains(m.View().Content, "generation cancelled") {
+		t.Errorf("view does not report the cancellation:\n%s", m.View().Content)
+	}
+}
+
+// I3: the spinner's status must not outlive the generation.
+func TestGeneratedMessageClearsTheGeneratingStatus(t *testing.T) {
+	m := newTestModel(t, &fakeRunner{out: "feat: done"})
+
+	next, cmd := m.Update(key("g"))
+	m = next.(Model)
+	if !strings.Contains(m.View().Content, "generating") {
+		t.Fatal("precondition: status bar does not report generating")
+	}
+
+	m = update(m, drain(t, cmd))
+	if strings.Contains(m.View().Content, "generating") {
+		t.Errorf("status bar still reports generating after the message arrived:\n%s", m.View().Content)
+	}
+}
+
+// I6: the view ranks err above status, so a stale one hides the refusal.
+func TestAmendRefusalClearsStaleError(t *testing.T) {
+	m := newTestModel(t, &fakeRunner{})
+	m.headPushed = true
+	m = update(m, errMsg{err: errFake{}})
+
+	m = update(m, key("A"))
+
+	out := m.View().Content
+	if strings.Contains(out, "boom") {
+		t.Errorf("stale error masks the amend refusal:\n%s", out)
+	}
+	if !strings.Contains(out, "already pushed") {
+		t.Errorf("view does not show the refusal:\n%s", out)
 	}
 }
 

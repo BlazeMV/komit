@@ -50,6 +50,7 @@ type Model struct {
 	busy     bool
 	spinner  spinner.Model
 	cancel   context.CancelFunc
+	epoch    int
 	nudging  bool
 	nudge    textinput.Model
 
@@ -94,8 +95,12 @@ type statusMsg struct {
 	headPushed bool
 }
 
-// errMsg carries a failure to display without tearing the TUI down.
-type errMsg struct{ err error }
+// errMsg carries a failure to display without tearing the TUI down. A non-zero
+// epoch ties it to one generation; anything else is always applied.
+type errMsg struct {
+	err   error
+	epoch int
+}
 
 // diffMsg carries a loaded diff for one file.
 type diffMsg struct {
@@ -104,10 +109,20 @@ type diffMsg struct {
 }
 
 // generatedMsg carries a finished commit message.
-type generatedMsg struct{ message string }
+type generatedMsg struct {
+	message string
+	epoch   int
+}
 
-// committedMsg reports a finished commit (and push, if requested).
-type committedMsg struct{ summary string }
+// committedMsg reports a finished commit; err is set when the push that
+// followed it failed, which does not undo the commit.
+type committedMsg struct {
+	summary string
+	err     error
+}
+
+// current reports whether an epoch-tagged message has not been superseded.
+func (m Model) current(epoch int) bool { return epoch == 0 || epoch >= m.epoch }
 
 // spinnerTick is bubbles' spinner tick, aliased so tests can recognise it.
 type spinnerTick = spinner.TickMsg

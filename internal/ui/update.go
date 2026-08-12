@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,16 +25,12 @@ func (m Model) loadStatus() tea.Cmd {
 	return func() tea.Msg {
 		files, err := repo.Status()
 		if err != nil {
-			return errMsg{err}
+			return errMsg{err: err}
 		}
-		branch, err := repo.BranchState()
-		if err != nil {
-			return errMsg{err}
-		}
-		headPushed, err := repo.HeadPushed()
-		if err != nil {
-			return errMsg{err}
-		}
+		// Branch metadata is decoration; it used to abort the whole refresh and
+		// leave the file list empty forever on a repo with no commits.
+		branch, _ := repo.BranchState()
+		headPushed, _ := repo.HeadPushed()
 		return statusMsg{files: files, branch: branch, headPushed: headPushed}
 	}
 }
@@ -62,6 +59,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case errMsg:
+		if !m.current(msg.epoch) {
+			return m, nil
+		}
 		m.err = msg.err
 		m.busy = false
 		m.cancel = nil
@@ -77,8 +77,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case generatedMsg:
+		if !m.current(msg.epoch) {
+			return m, nil
+		}
 		m.busy = false
 		m.cancel = nil
+		m.status = ""
 		m.msgInput.SetValue(msg.message)
 		return m, nil
 
@@ -87,6 +91,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.msgInput.SetValue("")
 		m.amend = false
 		m.status = msg.summary
+		m.err = msg.err
 		return m, m.loadStatus()
 
 	case spinner.TickMsg:
@@ -121,12 +126,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			nudge := m.nudge.Value()
 			m.nudging = false
-			return m, m.generate(nudge)
+			cmd := m.generate(nudge)
+			return m, cmd
 		case keyCancel:
 			m.nudging = false
 			return m, nil
 		case "ctrl+c":
-			return m, tea.Quit
+			cmd := m.quit()
+			return m, cmd
 		}
 		var cmd tea.Cmd
 		m.nudge, cmd = m.nudge.Update(msg)
@@ -141,7 +148,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keyFocus:
 			return m.moveFocus(m.nextFocus())
 		case "ctrl+c":
-			return m, tea.Quit
+			cmd := m.quit()
+			return m, cmd
 		}
 		var cmd tea.Cmd
 		m.msgInput, cmd = m.msgInput.Update(msg)
@@ -156,7 +164,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keyFocus:
 			return m.moveFocus(m.nextFocus())
 		case "ctrl+c":
-			return m, tea.Quit
+			cmd := m.quit()
+			return m, cmd
 		}
 		var cmd tea.Cmd
 		m.diff, cmd = m.diff.Update(msg)
@@ -165,7 +174,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case keyQuit, "ctrl+c":
-		return m, tea.Quit
+		cmd := m.quit()
+		return m, cmd
 	case keyFocus:
 		return m.moveFocus(m.nextFocus())
 	case keyUp, keyUpAlt:
@@ -195,7 +205,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.busy {
 			return m, nil
 		}
-		return m, m.generate("")
+		cmd := m.generate("")
+		return m, cmd
 	case keyRegen:
 		if m.busy {
 			return m, nil
@@ -207,15 +218,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.busy {
 			return m, nil
 		}
-		return m, m.commit(false)
+		cmd := m.commit(false)
+		return m, cmd
 	case keyPush:
 		if m.busy {
 			return m, nil
 		}
-		return m, m.commit(true)
+		cmd := m.commit(true)
+		return m, cmd
 	case keyAmend:
 		if !m.amend && m.headPushed {
 			m.status = "HEAD is already pushed — amending would rewrite published history"
+			m.err = nil
 			return m, nil
 		}
 		m.amend = !m.amend
@@ -224,10 +238,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cancel()
 			m.cancel = nil
 			m.busy = false
+			m.epoch++
 			m.status = "generation cancelled"
 		}
 	}
 	return m, nil
+}
+
+// quit undoes an in-flight generation's intent-to-add; bubbletea abandons
+// command goroutines rather than letting their deferred cleanup run.
+func (m *Model) quit() tea.Cmd {
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+	}
+	m.epoch++
+	if m.repo != nil {
+		m.repo.DrainIntents() // reported by main, which drains again
+	}
+	return tea.Quit
 }
 
 // nextFocus skips focusDiff while the diff pane is hidden.
@@ -259,20 +288,15 @@ func (m Model) loadDiff() tea.Cmd {
 	}
 	repo, it := m.repo, m.items[m.cursor]
 	return func() tea.Msg {
-		var cleanup func() error
+		var body string
+		var err error
 		if it.Untracked() {
-			c, err := repo.MarkIntent([]string{it.Path})
-			if err != nil {
-				return errMsg{err}
-			}
-			cleanup = c
-		}
-		body, err := repo.Diff([]string{it.Path})
-		if cleanup != nil {
-			cleanup()
+			body, err = repo.DiffUntracked(it.Path)
+		} else {
+			body, err = repo.Diff([]string{it.Path})
 		}
 		if err != nil {
-			return errMsg{err}
+			return errMsg{err: err}
 		}
 		if strings.TrimSpace(body) == "" {
 			body = "(no textual diff)"
@@ -288,7 +312,7 @@ func (m Model) openEditor() tea.Cmd {
 	}
 	f, err := os.CreateTemp("", "komit-*.txt")
 	if err != nil {
-		return func() tea.Msg { return errMsg{err} }
+		return func() tea.Msg { return errMsg{err: err} }
 	}
 	path := f.Name()
 	f.WriteString(m.msgInput.Value())
@@ -297,12 +321,12 @@ func (m Model) openEditor() tea.Cmd {
 	return tea.ExecProcess(exec.Command(editor, path), func(err error) tea.Msg {
 		if err != nil {
 			os.Remove(path)
-			return errMsg{err}
+			return errMsg{err: err}
 		}
 		data, readErr := os.ReadFile(path)
 		os.Remove(path)
 		if readErr != nil {
-			return errMsg{readErr}
+			return errMsg{err: readErr}
 		}
 		return generatedMsg{message: strings.TrimSpace(string(data))}
 	})
@@ -331,21 +355,36 @@ func (m *Model) generate(nudge string) tea.Cmd {
 	ctx, cancel := context.WithTimeout(context.Background(), generateTimeout)
 	m.cancel = cancel
 	m.busy = true
+	m.epoch++
+	epoch := m.epoch
 	m.status = "generating…"
 	m.err = nil
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		defer cancel()
+		repo.LockIndex()
+		defer repo.UnlockIndex()
 
-		cleanup := func() error { return nil }
+		var cleanup func() error
+		finish := func(msg tea.Msg, err error) tea.Msg {
+			if cleanup != nil {
+				if cerr := cleanup(); cerr != nil {
+					err = errors.Join(err, cerr)
+				}
+			}
+			if err != nil {
+				return errMsg{err: err, epoch: epoch}
+			}
+			return msg
+		}
+
 		if len(untracked) > 0 {
 			c, err := repo.MarkIntent(untracked)
-			if err != nil {
-				return errMsg{err}
-			}
 			cleanup = c
+			if err != nil {
+				return finish(nil, err)
+			}
 		}
-		defer cleanup()
 
 		diffOf := repo.Diff
 		if amend {
@@ -353,11 +392,11 @@ func (m *Model) generate(nudge string) tea.Cmd {
 		}
 		diff, err := diffOf(paths)
 		if err != nil {
-			return errMsg{err}
+			return finish(nil, err)
 		}
 		recent, err := repo.RecentCommits(10)
 		if err != nil {
-			return errMsg{err}
+			return finish(nil, err)
 		}
 
 		out, err := ai.Generate(ctx, runner, cfg, config.Vars{
@@ -367,9 +406,9 @@ func (m *Model) generate(nudge string) tea.Cmd {
 			RecentCommits: recent,
 		})
 		if err != nil {
-			return errMsg{err}
+			return finish(nil, err)
 		}
-		return generatedMsg{message: out}
+		return finish(generatedMsg{message: out, epoch: epoch}, nil)
 	})
 }
 
@@ -393,27 +432,44 @@ func (m *Model) commit(push bool) tea.Cmd {
 	m.err = nil
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
-		cleanup := func() error { return nil }
+		repo.LockIndex()
+		defer repo.UnlockIndex()
+
+		var cleanup func() error
+		unmark := func(err error) error {
+			if cleanup == nil {
+				return err
+			}
+			if cerr := cleanup(); cerr != nil {
+				return errors.Join(err, cerr)
+			}
+			return err
+		}
+
 		if len(untracked) > 0 {
 			c, err := repo.MarkIntent(untracked)
-			if err != nil {
-				return errMsg{err}
-			}
 			cleanup = c
+			if err != nil {
+				return errMsg{err: unmark(err)}
+			}
 		}
 
 		if err := repo.Commit(paths, msg, amend); err != nil {
-			cleanup() // commit failed: leave the index as we found it
-			return errMsg{err}
+			return errMsg{err: unmark(err)} // leave the index as we found it
 		}
 
 		summary := fmt.Sprintf("committed %d file(s)", count)
 		if amend {
 			summary = "amended HEAD"
 		}
+		// Past this point the commit has landed, so nothing may report an errMsg:
+		// it would keep the message and amend flag as if it had not.
+		if err := unmark(nil); err != nil {
+			return committedMsg{summary: summary, err: err}
+		}
 		if push {
 			if err := repo.Push(); err != nil {
-				return errMsg{err}
+				return committedMsg{summary: summary + ", push failed", err: err}
 			}
 			summary += " and pushed"
 		}
