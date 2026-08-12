@@ -39,7 +39,8 @@ func TestGenerateFillsMessageFromRunner(t *testing.T) {
 	runner := &fakeRunner{out: "feat: from runner"}
 	m := newTestModel(t, runner)
 
-	_, cmd := m.Update(key("g"))
+	next, cmd := m.Update(key("g"))
+	m = next.(Model)
 	if cmd == nil {
 		t.Fatal("g produced no command")
 	}

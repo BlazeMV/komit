@@ -122,7 +122,7 @@ type committedMsg struct {
 }
 
 // current reports whether an epoch-tagged message has not been superseded.
-func (m Model) current(epoch int) bool { return epoch == 0 || epoch >= m.epoch }
+func (m Model) current(epoch int) bool { return epoch == 0 || epoch == m.epoch }
 
 // spinnerTick is bubbles' spinner tick, aliased so tests can recognise it.
 type spinnerTick = spinner.TickMsg
