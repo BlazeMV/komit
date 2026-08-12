@@ -1,4 +1,35 @@
+# binaries and build output
 /komit
 dist/
+
+# go
+*.test
+*.out
+coverage.*
+__debug_bin*
+
+# os
 .DS_Store
+Thumbs.db
+
+# editors / ide
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# ai tooling
 .superpowers/
+.claude/settings.local.json
+CLAUDE.local.md
+AGENTS.local.md
+.aider*
+.cursor/
+.cursorignore
+.windsurf/
+.gemini/
+.codeium/
+.continue/
+.copilot/
