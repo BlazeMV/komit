@@ -84,7 +84,9 @@ func TestCLIFailureIncludesStderr(t *testing.T) {
 }
 
 func TestCLIRespectsContextCancellation(t *testing.T) {
-	fakeClaude(t, `cat > /dev/null; sleep 30`)
+	// exec replaces the shell so a killed direct child cannot leave sleep
+	// running as an orphaned grandchild.
+	fakeClaude(t, `cat > /dev/null; exec sleep 30`)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()

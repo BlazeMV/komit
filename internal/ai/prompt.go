@@ -39,14 +39,19 @@ func TruncateDiff(diff string) string {
 	if len(out) > MaxDiffBytes {
 		// Ensure truncated result stays within MaxDiffBytes.
 		omitted := len(out) - MaxDiffBytes + 50
-		markerLen := 38 + len(strconv.Itoa(omitted))
+		markerLen := len(truncatedMarkerFormat) - len(truncatedMarkerVerb) + len(strconv.Itoa(omitted))
 		slicePos := MaxDiffBytes - markerLen
 		omitted = len(out) - slicePos
-		marker := fmt.Sprintf("\n... [diff truncated, %d bytes omitted]\n", omitted)
+		marker := fmt.Sprintf(truncatedMarkerFormat, omitted)
 		out = out[:slicePos] + marker
 	}
 	return out
 }
+
+const (
+	truncatedMarkerFormat = "\n... [diff truncated, %d bytes omitted]\n"
+	truncatedMarkerVerb   = "%d"
+)
 
 func capPart(part string) string {
 	if len(part) <= MaxFileBytes {
