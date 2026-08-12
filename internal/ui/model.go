@@ -2,9 +2,12 @@
 package ui
 
 import (
+	"context"
 	"strings"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	"github.com/BlazeMV/komit/internal/ai"
 	"github.com/BlazeMV/komit/internal/config"
@@ -34,28 +37,41 @@ type Model struct {
 	cursor int
 	branch git.Branch
 
-	focus  focus
-	amend  bool
-	status string
-	err    error
+	focus      focus
+	amend      bool
+	status     string
+	err        error
+	headPushed bool
 
 	showDiff bool
 	diffPath string
 	diff     viewport.Model
 	msgInput textarea.Model
 	busy     bool
+	spinner  spinner.Model
+	cancel   context.CancelFunc
+	nudging  bool
+	nudge    textinput.Model
 
 	width, height int
 }
 
 // New builds the initial model. Files are loaded by the Init command.
 func New(repo *git.Repo, cfg config.Config, runner ai.Runner) Model {
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+
+	ni := textinput.New()
+	ni.Placeholder = "how should it change? (enter to regenerate, esc to cancel)"
+
 	return Model{
 		repo:     repo,
 		cfg:      cfg,
 		runner:   runner,
 		diff:     viewport.New(),
 		msgInput: newMessageInput(),
+		spinner:  sp,
+		nudge:    ni,
 	}
 }
 
@@ -73,8 +89,9 @@ func (m Model) message() string {
 
 // statusMsg carries a refreshed working-tree state.
 type statusMsg struct {
-	files  []git.FileChange
-	branch git.Branch
+	files      []git.FileChange
+	branch     git.Branch
+	headPushed bool
 }
 
 // errMsg carries a failure to display without tearing the TUI down.
@@ -88,6 +105,12 @@ type diffMsg struct {
 
 // generatedMsg carries a finished commit message.
 type generatedMsg struct{ message string }
+
+// committedMsg reports a finished commit (and push, if requested).
+type committedMsg struct{ summary string }
+
+// spinnerTick is bubbles' spinner tick, aliased so tests can recognise it.
+type spinnerTick = spinner.TickMsg
 
 // applyStartupSelection selects staged files if anything is staged, otherwise
 // everything.

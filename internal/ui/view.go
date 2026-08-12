@@ -39,10 +39,19 @@ func (m Model) render() string {
 	b.WriteString(m.msgInput.View())
 	b.WriteString("\n")
 
-	if m.err != nil {
+	if m.nudging {
+		b.WriteString(m.nudge.View())
+		b.WriteString("\n")
+	}
+
+	switch {
+	case m.busy:
+		b.WriteString(m.spinner.View() + " " + m.status)
+		b.WriteString("\n")
+	case m.err != nil:
 		b.WriteString(errStyle.Render(m.err.Error()))
 		b.WriteString("\n")
-	} else if m.status != "" {
+	case m.status != "":
 		b.WriteString(dimStyle.Render(m.status))
 		b.WriteString("\n")
 	}

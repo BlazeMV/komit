@@ -1,11 +1,17 @@
 package ui
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"github.com/BlazeMV/komit/internal/ai"
+	"github.com/BlazeMV/komit/internal/config"
 )
 
 func (m Model) Init() tea.Cmd {
@@ -24,7 +30,11 @@ func (m Model) loadStatus() tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		return statusMsg{files: files, branch: branch}
+		headPushed, err := repo.HeadPushed()
+		if err != nil {
+			return errMsg{err}
+		}
+		return statusMsg{files: files, branch: branch, headPushed: headPushed}
 	}
 }
 
@@ -47,11 +57,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.items = applyStartupSelection(items)
 		m.branch = msg.branch
+		m.headPushed = msg.headPushed
 		m.moveCursor(0)
 		return m, nil
 
 	case errMsg:
 		m.err = msg.err
+		m.busy = false
 		return m, nil
 
 	case diffMsg:
@@ -67,6 +79,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		m.msgInput.SetValue(msg.message)
 		return m, nil
+
+	case committedMsg:
+		m.busy = false
+		m.msgInput.SetValue("")
+		m.amend = false
+		m.status = msg.summary
+		return m, m.loadStatus()
+
+	case spinner.TickMsg:
+		if !m.busy {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -86,6 +113,24 @@ func (m *Model) resizePanes() {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While nudging, all runes belong to the nudge input.
+	if m.nudging {
+		switch msg.String() {
+		case "enter":
+			nudge := m.nudge.Value()
+			m.nudging = false
+			return m, m.generate(nudge)
+		case keyCancel:
+			m.nudging = false
+			return m, nil
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		var cmd tea.Cmd
+		m.nudge, cmd = m.nudge.Update(msg)
+		return m, cmd
+	}
+
 	// While the editor has focus, all runes belong to it.
 	if m.focus == focusMessage {
 		switch msg.String() {
@@ -144,6 +189,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.moveFocus(focusMessage)
 	case keyEditor:
 		return m, m.openEditor()
+	case keyGenerate:
+		return m, m.generate("")
+	case keyRegen:
+		m.nudging = true
+		m.nudge.SetValue("")
+		return m, m.nudge.Focus()
+	case keyCommit:
+		return m, m.commit(false)
+	case keyPush:
+		return m, m.commit(true)
+	case keyAmend:
+		if !m.amend && m.headPushed {
+			m.status = "HEAD is already pushed — amending would rewrite published history"
+			return m, nil
+		}
+		m.amend = !m.amend
+	case keyCancel:
+		if m.busy && m.cancel != nil {
+			m.cancel()
+			m.busy = false
+			m.status = "generation cancelled"
+		}
 	}
 	return m, nil
 }
@@ -224,4 +291,114 @@ func (m Model) openEditor() tea.Cmd {
 		}
 		return generatedMsg{message: strings.TrimSpace(string(data))}
 	})
+}
+
+const generateTimeout = 30 * time.Second
+
+func (m *Model) generate(nudge string) tea.Cmd {
+	paths := m.selectedPaths()
+	if len(paths) == 0 {
+		m.status = "no files selected"
+		return nil
+	}
+
+	repo, cfg, runner := m.repo, m.cfg, m.runner
+	untracked := m.untrackedSelected()
+	branch := m.branch.Name
+	amend := m.amend
+	prompt := cfg.Prompt
+	if nudge != "" {
+		prompt += "\n\nRevise according to this instruction: " + nudge
+	}
+	cfg.Prompt = prompt
+
+	ctx, cancel := context.WithTimeout(context.Background(), generateTimeout)
+	m.cancel = cancel
+	m.busy = true
+	m.status = "generating…"
+	m.err = nil
+
+	return tea.Batch(m.spinner.Tick, func() tea.Msg {
+		defer cancel()
+
+		cleanup := func() {}
+		if len(untracked) > 0 {
+			c, err := repo.MarkIntent(untracked)
+			if err != nil {
+				return errMsg{err}
+			}
+			cleanup = c
+		}
+		defer cleanup()
+
+		diffOf := repo.Diff
+		if amend {
+			diffOf = repo.DiffAmend
+		}
+		diff, err := diffOf(paths)
+		if err != nil {
+			return errMsg{err}
+		}
+		recent, err := repo.RecentCommits(10)
+		if err != nil {
+			return errMsg{err}
+		}
+
+		out, err := ai.Generate(ctx, runner, cfg, config.Vars{
+			Diff:          diff,
+			Files:         strings.Join(paths, ", "),
+			Branch:        branch,
+			RecentCommits: recent,
+		})
+		if err != nil {
+			return errMsg{err}
+		}
+		return generatedMsg{message: out}
+	})
+}
+
+func (m *Model) commit(push bool) tea.Cmd {
+	paths := m.selectedPaths()
+	if len(paths) == 0 {
+		m.status = "no files selected"
+		return nil
+	}
+	if m.message() == "" {
+		m.status = "write a message first — g to generate, e to type"
+		return nil
+	}
+
+	repo, msg, amend := m.repo, m.message(), m.amend
+	untracked := m.untrackedSelected()
+	count := len(paths)
+	m.busy = true
+	m.err = nil
+
+	return func() tea.Msg {
+		cleanup := func() {}
+		if len(untracked) > 0 {
+			c, err := repo.MarkIntent(untracked)
+			if err != nil {
+				return errMsg{err}
+			}
+			cleanup = c
+		}
+
+		if err := repo.Commit(paths, msg, amend); err != nil {
+			cleanup() // commit failed: leave the index as we found it
+			return errMsg{err}
+		}
+
+		summary := fmt.Sprintf("committed %d file(s)", count)
+		if amend {
+			summary = "amended HEAD"
+		}
+		if push {
+			if err := repo.Push(); err != nil {
+				return errMsg{err}
+			}
+			summary += " and pushed"
+		}
+		return committedMsg{summary: summary}
+	}
 }
