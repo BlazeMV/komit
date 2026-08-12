@@ -25,6 +25,7 @@ Design spec: [`komit.md`](komit.md).
 | `gopkg.in/yaml.v3` | v3.0.1 |
 
 - **Code comments follow the user's CLAUDE.md policy**, which is stricter than the comments shown in this plan's snippets: default to none; only for non-obvious or shady code; hard cap 2 lines of prose including docblocks; state the invariant and what breaks if violated — never the mechanism, the call chain, or why this approach was picked over another. If a comment in a snippet exceeds that, shorten it when you write the file.
+- **`tea.Model` in v2 is `Init() Cmd`, `Update(Msg) (Model, Cmd)`, `View() View`** — note `View()` returns `tea.View`, NOT a string (verified against v2.0.8 source). Keep the layout in `render() string` and make `View()` a thin `tea.NewView(m.render())` wrapper; tests assert on `m.View().Content`.
 - Key handling matches on `tea.KeyMsg.String()`. Verified against v2.0.8: a rune key yields `"g"`, shifted yields `"A"`, and **space yields `"space"`, not `" "`**. `tea.KeyMsg` is an interface in v2 satisfied by `tea.KeyPressMsg`, so `case tea.KeyMsg:` in a type switch still works.
 - Commit messages: single line, lowercase, no body, **no AI attribution** (no `Co-Authored-By`, no generated-with footer)
 - TDD: every task writes the failing test first and runs it to see it fail before implementing
@@ -2212,7 +2213,7 @@ git commit -m "add file list model with selection rules"
 
 **Interfaces:**
 - Consumes: everything from Task 8
-- Produces: `func (m Model) Init() tea.Cmd`, `func (m Model) Update(tea.Msg) (tea.Model, tea.Cmd)`, `func (m Model) View() string`, `func (m Model) loadStatus() tea.Cmd`
+- Produces: `func (m Model) Init() tea.Cmd`, `func (m Model) Update(tea.Msg) (tea.Model, tea.Cmd)`, `func (m Model) View() tea.View` (a thin `tea.NewView(m.render())` wrapper) and `func (m Model) render() string`, `func (m Model) loadStatus() tea.Cmd`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2273,7 +2274,7 @@ func TestStatusMsgPopulatesItems(t *testing.T) {
 }
 
 func TestViewShowsFilesBranchAndHelp(t *testing.T) {
-	out := modelWithFiles().View()
+	out := modelWithFiles().View().Content
 	for _, want := range []string{"a.go", "b.go", "master", "commit"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("view missing %q:\n%s", want, out)
@@ -2287,7 +2288,7 @@ func TestViewMarksSelectionAndPartialStaging(t *testing.T) {
 		{Path: "partial.go", Index: 'M', Worktree: 'M'},
 	}})
 
-	out := m.View()
+	out := m.View().Content
 	if !strings.Contains(out, "±") {
 		t.Errorf("view does not mark the partially staged file:\n%s", out)
 	}
@@ -2319,7 +2320,7 @@ func TestKeyNavigationMovesCursor(t *testing.T) {
 
 func TestErrMsgIsDisplayedNotFatal(t *testing.T) {
 	m := update(modelWithFiles(), errMsg{err: errFake{}})
-	out := m.View()
+	out := m.View().Content
 	if !strings.Contains(out, "boom") {
 		t.Errorf("view does not show the error:\n%s", out)
 	}
@@ -2335,7 +2336,7 @@ func (errFake) Error() string { return "boom" }
 func TestEmptyRepoShowsEmptyState(t *testing.T) {
 	m := Model{width: 100, height: 30}
 	m = update(m, statusMsg{files: nil, branch: git.Branch{Name: "master"}})
-	if out := m.View(); !strings.Contains(out, "no changes") {
+	if out := m.View().Content; !strings.Contains(out, "no changes") {
 		t.Errorf("view missing empty state:\n%s", out)
 	}
 }
@@ -2443,7 +2444,13 @@ import (
 
 const helpLine = "space sel · a all · d diff · g gen · r regen · e edit · c commit · P push · q quit"
 
-func (m Model) View() string {
+// bubbletea v2's Model interface is View() tea.View, not View() string.
+// render() holds the actual layout; View wraps it.
+func (m Model) View() tea.View {
+	return tea.NewView(m.render())
+}
+
+func (m Model) render() string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("komit"))
@@ -2543,20 +2550,20 @@ import (
 
 func TestDiffPaneTogglesAndShowsContent(t *testing.T) {
 	m := modelWithFiles()
-	if strings.Contains(m.View(), "@@") {
+	if strings.Contains(m.View().Content, "@@") {
 		t.Fatal("diff pane visible before it was requested")
 	}
 
 	m = update(m, key("d"))
 	m = update(m, diffMsg{path: "a.go", body: "@@ -1 +1 @@\n-old\n+new\n"})
 
-	out := m.View()
+	out := m.View().Content
 	if !strings.Contains(out, "+new") {
 		t.Errorf("diff pane missing content:\n%s", out)
 	}
 
 	m = update(m, key("d"))
-	if strings.Contains(m.View(), "+new") {
+	if strings.Contains(m.View().Content, "+new") {
 		t.Error("diff pane did not hide")
 	}
 }
@@ -2567,7 +2574,7 @@ func TestDiffLoadsForCursorFileNotSelection(t *testing.T) {
 	m = update(m, key("down")) // cursor on b.go
 	m = update(m, diffMsg{path: "b.go", body: "@@ b @@"})
 
-	if !strings.Contains(m.View(), "b.go") {
+	if !strings.Contains(m.View().Content, "b.go") {
 		t.Error("diff pane header does not name the cursor file")
 	}
 }
@@ -2581,7 +2588,7 @@ func TestMessageEditorAcceptsTyping(t *testing.T) {
 	if got := m.message(); got != "fix: thing" {
 		t.Errorf("message = %q, want %q", got, "fix: thing")
 	}
-	if !strings.Contains(m.View(), "fix: thing") {
+	if !strings.Contains(m.View().Content, "fix: thing") {
 		t.Error("view does not show the typed message")
 	}
 }
@@ -2617,7 +2624,7 @@ func TestPartialStagingWarningShownForSelectedFile(t *testing.T) {
 	m = update(m, statusMsg{files: []git.FileChange{
 		{Path: "partial.go", Index: 'M', Worktree: 'M'},
 	}})
-	if !strings.Contains(m.View(), "±") {
+	if !strings.Contains(m.View().Content, "±") {
 		t.Error("no partial-staging marker")
 	}
 }
@@ -2922,16 +2929,16 @@ func TestGenerateWithNothingSelectedIsRefused(t *testing.T) {
 	}
 
 	m = update(m, key("g"))
-	if !strings.Contains(m.View(), "no files selected") {
-		t.Errorf("view does not explain the refusal:\n%s", m.View())
+	if !strings.Contains(m.View().Content, "no files selected") {
+		t.Errorf("view does not explain the refusal:\n%s", m.View().Content)
 	}
 }
 
 func TestCommitWithEmptyMessageIsRefused(t *testing.T) {
 	m := newTestModel(t, &fakeRunner{})
 	m = update(m, key("c"))
-	if !strings.Contains(strings.ToLower(m.View()), "message") {
-		t.Errorf("view does not explain the refusal:\n%s", m.View())
+	if !strings.Contains(strings.ToLower(m.View().Content), "message") {
+		t.Errorf("view does not explain the refusal:\n%s", m.View().Content)
 	}
 }
 
@@ -2943,8 +2950,8 @@ func TestCommitClearsMessageAndRefreshes(t *testing.T) {
 	if m.message() != "" {
 		t.Errorf("message = %q, want cleared after commit", m.message())
 	}
-	if !strings.Contains(m.View(), "committed 1 file") {
-		t.Errorf("view missing the commit confirmation:\n%s", m.View())
+	if !strings.Contains(m.View().Content, "committed 1 file") {
+		t.Errorf("view missing the commit confirmation:\n%s", m.View().Content)
 	}
 }
 
@@ -2956,8 +2963,8 @@ func TestAmendRefusedWhenHeadIsPushed(t *testing.T) {
 	if m.amend {
 		t.Error("amend mode enabled on a pushed HEAD")
 	}
-	if !strings.Contains(m.View(), "already pushed") {
-		t.Errorf("view does not explain the refusal:\n%s", m.View())
+	if !strings.Contains(m.View().Content, "already pushed") {
+		t.Errorf("view does not explain the refusal:\n%s", m.View().Content)
 	}
 }
 
@@ -2967,7 +2974,7 @@ func TestAmendToggles(t *testing.T) {
 	if !m.amend {
 		t.Fatal("amend not enabled")
 	}
-	if !strings.Contains(m.View(), "AMEND") {
+	if !strings.Contains(m.View().Content, "AMEND") {
 		t.Error("view does not show the amend banner")
 	}
 	m = update(m, key("A"))
@@ -2979,7 +2986,7 @@ func TestAmendToggles(t *testing.T) {
 func TestGenerationErrorIsShownAndNotFatal(t *testing.T) {
 	m := newTestModel(t, &fakeRunner{})
 	m = update(m, errMsg{err: errFake{}})
-	if !strings.Contains(m.View(), "boom") {
+	if !strings.Contains(m.View().Content, "boom") {
 		t.Error("error not displayed")
 	}
 	if len(m.items) == 0 {
