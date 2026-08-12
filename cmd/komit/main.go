@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/BlazeMV/komit/internal/ai"
@@ -18,6 +19,26 @@ import (
 // version is set by the linker at release time.
 var version = "dev"
 
+// currentVersion prefers the linker's value, then the version Go stamps into
+// the binary from VCS tags.
+func currentVersion() string {
+	var stamped string
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		stamped = bi.Main.Version
+	}
+	return resolveVersion(version, stamped)
+}
+
+func resolveVersion(linker, stamped string) string {
+	if linker != "dev" {
+		return linker
+	}
+	if stamped == "" || stamped == "(devel)" {
+		return linker
+	}
+	return stamped
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -26,7 +47,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "-v", "version":
-			fmt.Fprintf(stdout, "komit %s\n", version)
+			fmt.Fprintf(stdout, "komit %s\n", currentVersion())
 			return 0
 		case "init":
 			if err := initConfig(stdout); err != nil {

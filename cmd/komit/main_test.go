@@ -20,6 +20,29 @@ func TestVersionFlag(t *testing.T) {
 	}
 }
 
+func TestResolveVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		linker  string
+		stamped string
+		want    string
+	}{
+		{"released tarball", "v0.2.0", "v0.2.0", "v0.2.0"},
+		{"go install at a tag", "dev", "v0.2.0", "v0.2.0"},
+		{"built past a tag", "dev", "v0.2.1-0.20260812160034-51b0ae8aecd2", "v0.2.1-0.20260812160034-51b0ae8aecd2"},
+		{"built with local edits", "dev", "v0.2.0+dirty", "v0.2.0+dirty"},
+		{"built without a repo", "dev", "(devel)", "dev"},
+		{"no build info", "dev", "", "dev"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveVersion(tt.linker, tt.stamped); got != tt.want {
+				t.Errorf("resolveVersion(%q, %q) = %q, want %q", tt.linker, tt.stamped, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestOutsideRepoExitsWithMessage(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
