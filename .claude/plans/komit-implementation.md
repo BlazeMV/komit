@@ -2861,6 +2861,9 @@ git commit -m "add diff pane and message editor"
 
 **Interfaces:**
 - Consumes: Tasks 9–10, `ai.Generate`, `git.Repo.Commit/Push/HeadPushed`
+- Generate/regen/commit/push are refused while `busy`; `m.cancel` is scoped to generation only (reset on success, error and cancel) so `esc` cannot misreport an uncancellable commit as cancelled.
+- Refusal branches must clear `m.err` — `render()` prioritises `err` over `status`, so a stale error masks the refusal.
+- `commit()` primes the spinner tick the same way `generate()` does.
 - Produces: `func (m Model) generate(nudge string) tea.Cmd`, `func (m Model) commit(push bool) tea.Cmd`, messages `committedMsg`, `busyMsg`; fields `spinner spinner.Model`, `cancel context.CancelFunc`, `nudge textinput.Model`
 
 - [ ] **Step 1: Write the failing test**
