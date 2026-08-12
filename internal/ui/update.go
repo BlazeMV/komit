@@ -159,12 +159,6 @@ func (m Model) loadDiff() tea.Cmd {
 	}
 }
 
-// editorDoneMsg carries the result of shelling out to $EDITOR.
-type editorDoneMsg struct {
-	message string
-	err     error
-}
-
 // openEditor shells out to $EDITOR (or vi) on a temp file seeded with the
 // current message, and feeds the edited result back into the textarea.
 func (m Model) openEditor() tea.Cmd {
