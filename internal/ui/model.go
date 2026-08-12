@@ -67,7 +67,6 @@ func newMessageInput() textarea.Model {
 	return ta
 }
 
-// message returns the trimmed commit message currently in the editor.
 func (m Model) message() string {
 	return strings.TrimSpace(m.msgInput.Value())
 }
