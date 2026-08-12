@@ -40,11 +40,15 @@ type Branch struct {
 }
 
 // BranchState reports the branch name and, when an upstream exists, how far
-// ahead/behind it is. A missing upstream is not an error.
+// ahead/behind it is. A missing upstream or an unborn branch is not an error.
 func (r *Repo) BranchState() (Branch, error) {
 	name, err := r.run("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		return Branch{}, err
+		unborn, nameErr := r.run("branch", "--show-current")
+		if nameErr != nil {
+			return Branch{}, err
+		}
+		return Branch{Name: strings.TrimSpace(unborn)}, nil
 	}
 	b := Branch{Name: strings.TrimSpace(name)}
 

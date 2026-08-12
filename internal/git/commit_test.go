@@ -217,6 +217,20 @@ func TestBranchStateAheadOfUpstream(t *testing.T) {
 	}
 }
 
+// C2: rev-parse --abbrev-ref HEAD exits 128 before the first commit.
+func TestBranchStateOnUnbornBranch(t *testing.T) {
+	r := newRepo(t)
+	write(t, r, "a.go", "1\n")
+
+	b, err := r.BranchState()
+	if err != nil {
+		t.Fatalf("BranchState on a repo with no commits: %v", err)
+	}
+	if b.Name != "master" {
+		t.Errorf("Name = %q, want master", b.Name)
+	}
+}
+
 func TestHeadPushedWithoutUpstreamIsFalse(t *testing.T) {
 	r := newRepo(t)
 	write(t, r, "a.go", "1\n")

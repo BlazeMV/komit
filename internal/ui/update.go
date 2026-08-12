@@ -259,7 +259,7 @@ func (m Model) loadDiff() tea.Cmd {
 	}
 	repo, it := m.repo, m.items[m.cursor]
 	return func() tea.Msg {
-		var cleanup func()
+		var cleanup func() error
 		if it.Untracked() {
 			c, err := repo.MarkIntent([]string{it.Path})
 			if err != nil {
@@ -337,7 +337,7 @@ func (m *Model) generate(nudge string) tea.Cmd {
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		defer cancel()
 
-		cleanup := func() {}
+		cleanup := func() error { return nil }
 		if len(untracked) > 0 {
 			c, err := repo.MarkIntent(untracked)
 			if err != nil {
@@ -393,7 +393,7 @@ func (m *Model) commit(push bool) tea.Cmd {
 	m.err = nil
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
-		cleanup := func() {}
+		cleanup := func() error { return nil }
 		if len(untracked) > 0 {
 			c, err := repo.MarkIntent(untracked)
 			if err != nil {

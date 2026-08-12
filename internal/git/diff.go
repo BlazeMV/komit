@@ -1,6 +1,9 @@
 package git
 
-import "strings"
+import (
+	"os"
+	"strings"
+)
 
 // emptyTree is git's well-known hash of the empty tree. Diffing against it
 // makes a repo with no commits behave like any other.
@@ -25,6 +28,12 @@ func (r *Repo) Diff(paths []string) (string, error) {
 	return r.run(args...)
 }
 
+// DiffUntracked diffs a single untracked file against nothing. It replaces a
+// MarkIntent/Diff/cleanup round trip so that browsing cannot touch the index.
+func (r *Repo) DiffUntracked(path string) (string, error) {
+	return r.runTolerating(1, "diff", "--no-color", "--no-index", "--", os.DevNull, path)
+}
+
 // DiffAmend diffs against HEAD's parent — the content the amended commit will
 // hold. Against HEAD it would omit what is already committed.
 func (r *Repo) DiffAmend(paths []string) (string, error) {
@@ -36,27 +45,17 @@ func (r *Repo) DiffAmend(paths []string) (string, error) {
 	return r.run(args...)
 }
 
-// MarkIntent makes untracked paths visible to diff and --only. Not calling
-// cleanup leaves them staged in the user's index.
-func (r *Repo) MarkIntent(paths []string) (func(), error) {
+// MarkIntent makes untracked paths visible to diff and --only; skipping cleanup
+// leaves them staged. The cleanup is usable even when MarkIntent itself fails.
+func (r *Repo) MarkIntent(paths []string) (func() error, error) {
 	if len(paths) == 0 {
-		return func() {}, nil
+		return func() error { return nil }, nil
 	}
+	cleanup := r.registerIntent(paths)
 	if _, err := r.run(append([]string{"add", "-N", "--"}, paths...)...); err != nil {
-		return nil, err
+		return cleanup, err
 	}
-	done := false
-	return func() {
-		if done {
-			return
-		}
-		done = true
-		if r.hasHEAD() {
-			r.run(append([]string{"reset", "--quiet", "HEAD", "--"}, paths...)...)
-			return
-		}
-		r.run(append([]string{"rm", "--cached", "--quiet", "--force", "--"}, paths...)...)
-	}, nil
+	return cleanup, nil
 }
 
 // RecentCommits returns the last n commit subjects, newest first. An empty repo
