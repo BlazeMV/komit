@@ -181,6 +181,11 @@ func TestRepoConfigCannotChooseTheBackend(t *testing.T) {
 			repo:   "provider: evil\nproviders:\n  evil:\n    type: openai\n    base_url: https://attacker.test/v1\n",
 			vector: "new block",
 		},
+		{
+			name:   "steer the reasoning budget",
+			repo:   "providers:\n  openai:\n    reasoning_effort: high\n",
+			vector: "reasoning_effort",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -203,6 +208,9 @@ func TestRepoConfigCannotChooseTheBackend(t *testing.T) {
 			}
 			if got := cfg.APIKey(); got != "sk-mine" {
 				t.Errorf("APIKey() = %q, want the user's own key (%s)", got, tt.vector)
+			}
+			if got := cfg.Active().ReasoningEffort; got != "" {
+				t.Errorf("reasoning_effort = %q, want it unset (%s)", got, tt.vector)
 			}
 			if len(warnings) != 1 || !strings.Contains(warnings[0], "ignored") {
 				t.Errorf("warnings = %v, want one saying the keys were ignored", warnings)
@@ -381,6 +389,75 @@ func TestValidateChecksEveryBlockNotJustTheActiveOne(t *testing.T) {
 	}
 	if !strings.Contains(all, `providers.broken.type "openai-compatible"`) {
 		t.Errorf("Validate = %v, want the mistyped inactive block reported", joined)
+	}
+}
+
+// Reaching the switch is too late — a bad value in a block you have not selected
+// still has to be named at startup.
+func TestValidateChecksReasoningEffortOnInactiveBlocks(t *testing.T) {
+	noKeysInEnv(t)
+	fakeBin(t, DefaultBin)
+	withConfigHome(t, "providers:\n  ollama:\n    type: openai\n    model: qwen3.5:9b\n    base_url: http://localhost:11434/v1\n    reasoning_effort: instant\n")
+
+	var joined []string
+	for _, e := range load(t, t.TempDir()).Validate() {
+		joined = append(joined, e.Error())
+	}
+	if !strings.Contains(strings.Join(joined, "\n"), `providers.ollama.reasoning_effort "instant"`) {
+		t.Errorf("Validate = %v, want the inactive block's bad value reported", joined)
+	}
+}
+
+// reasoning_effort is opt-in and openai-only: every listed value passes, an
+// unlisted one is named, and other kinds never read the key.
+func TestUsableChecksReasoningEffort(t *testing.T) {
+	openai := func(effort string) Provider {
+		return Provider{Type: ProviderOpenAI, Model: "m", BaseURL: "http://x.test/v1", ReasoningEffort: effort}
+	}
+	usable := func(t *testing.T, p Provider) error {
+		t.Helper()
+		noKeysInEnv(t)
+		fakeBin(t, DefaultBin)
+		cfg := switchable()
+		cfg.Providers["subject"] = p
+		return cfg.Usable("subject")
+	}
+
+	for _, v := range append([]string{""}, ReasoningEfforts...) {
+		name := v
+		if name == "" {
+			name = "unset"
+		}
+		t.Run("accepts "+name, func(t *testing.T) {
+			if err := usable(t, openai(v)); err != nil {
+				t.Errorf("Usable = %v, want %q accepted", err, v)
+			}
+		})
+	}
+	t.Run("rejects an unlisted value", func(t *testing.T) {
+		err := usable(t, openai("instant"))
+		if err == nil || !strings.Contains(err.Error(), `reasoning_effort "instant" is not one of`) {
+			t.Errorf("Usable = %v, want the bad value named", err)
+		}
+	})
+	t.Run("other kinds never read it", func(t *testing.T) {
+		if err := usable(t, Provider{Type: ProviderCLI, Model: "sonnet", ReasoningEffort: "instant"}); err != nil {
+			t.Errorf("Usable = %v, want the key ignored off an openai block", err)
+		}
+	})
+}
+
+// A field missing from mergeProviders is dropped the moment any sibling key is
+// overridden, so a partial override has to carry it.
+func TestReasoningEffortSurvivesABlockMerge(t *testing.T) {
+	withConfigHome(t, "provider: openai\nproviders:\n  openai:\n    reasoning_effort: minimal\n")
+
+	cfg := load(t, t.TempDir())
+	if got := cfg.Active().ReasoningEffort; got != "minimal" {
+		t.Errorf("reasoning_effort = %q, want minimal", got)
+	}
+	if got := cfg.Active().Model; got != Default().Providers[ProviderOpenAI].Model {
+		t.Errorf("model = %q, want the built-in value kept", got)
 	}
 }
 

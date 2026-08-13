@@ -33,6 +33,10 @@ const (
 // ProviderKinds lists every provider implementation a block can select.
 var ProviderKinds = []string{ProviderCLI, ProviderAnthropic, ProviderOpenAI}
 
+// ReasoningEfforts are the values an openai block may set for reasoning_effort —
+// the union across OpenAI-compatible endpoints, so an endpoint may reject one.
+var ReasoningEfforts = []string{"none", "minimal", "low", "medium", "high", "max"}
+
 // DefaultBin is the claude executable looked up when no bin is configured.
 const DefaultBin = "claude"
 
@@ -60,6 +64,9 @@ type Provider struct {
 	APIKey    string `yaml:"api_key"`
 	APIKeyEnv string `yaml:"api_key_env"`
 	Bin       string `yaml:"bin"`
+	// ReasoningEffort is opt-in: unset sends no field, so endpoints that do not
+	// know it keep working.
+	ReasoningEffort string `yaml:"reasoning_effort"`
 }
 
 // Refresh controls how the change list picks up work done outside komit.
@@ -231,6 +238,7 @@ func mergeProviders(base, incoming map[string]Provider) map[string]Provider {
 			{&p.APIKey, &in.APIKey},
 			{&p.APIKeyEnv, &in.APIKeyEnv},
 			{&p.Bin, &in.Bin},
+			{&p.ReasoningEffort, &in.ReasoningEffort},
 		} {
 			if *f.src != "" {
 				*f.dst = *f.src
@@ -262,6 +270,9 @@ func (c Config) Usable(label string) error {
 		return c.noBlockError(label)
 	}
 	if err := c.typeError(label); err != nil {
+		return err
+	}
+	if err := c.reasoningError(label); err != nil {
 		return err
 	}
 	if errs := c.WithProvider(label).settingsErrors(); len(errs) > 0 {
@@ -336,6 +347,9 @@ func (c Config) Validate() []error {
 		if err := c.typeError(label); err != nil {
 			errs = append(errs, err)
 		}
+		if err := c.reasoningError(label); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	if _, ok := c.Providers[c.Provider]; !ok {
@@ -357,6 +371,17 @@ func (c Config) typeError(label string) error {
 		return fmt.Errorf("providers.%s.type %q is not one of: %s", label, t, kinds)
 	}
 	return nil
+}
+
+// reasoningError reports a reasoning_effort one block cannot use. Only openai
+// blocks read the key; other kinds ignore it as they ignore any foreign one.
+func (c Config) reasoningError(label string) error {
+	p := c.Providers[label]
+	if p.Type != ProviderOpenAI || p.ReasoningEffort == "" || slices.Contains(ReasoningEfforts, p.ReasoningEffort) {
+		return nil
+	}
+	return fmt.Errorf("providers.%s.reasoning_effort %q is not one of: %s",
+		label, p.ReasoningEffort, strings.Join(ReasoningEfforts, ", "))
 }
 
 // settingsErrors reports everything wrong with the active block beyond its type.

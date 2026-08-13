@@ -132,6 +132,31 @@ func TestOpenAISendsNoTokenCap(t *testing.T) {
 	}
 }
 
+// reasoning_effort is opt-in for the same reason max_tokens is omitted: the
+// endpoints that do not know the field reject it.
+func TestOpenAIOmitsReasoningEffortWhenUnset(t *testing.T) {
+	srv, got := apiServer(t, 200, `{"choices":[{"message":{"content":"x"}}]}`)
+
+	if _, err := (OpenAI{Model: "m", BaseURL: srv.URL, HTTP: srv.Client()}).Run(context.Background(), "p"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if _, ok := got.body["reasoning_effort"]; ok {
+		t.Error("request carried reasoning_effort with none configured")
+	}
+}
+
+func TestOpenAISendsReasoningEffortWhenSet(t *testing.T) {
+	srv, got := apiServer(t, 200, `{"choices":[{"message":{"content":"x"}}]}`)
+
+	r := OpenAI{Model: "m", BaseURL: srv.URL, ReasoningEffort: "none", HTTP: srv.Client()}
+	if _, err := r.Run(context.Background(), "p"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.body["reasoning_effort"] != "none" {
+		t.Errorf("reasoning_effort = %v, want none", got.body["reasoning_effort"])
+	}
+}
+
 // Ollama and LM Studio want no credentials at all.
 func TestOpenAIOmitsAuthorizationWithoutAKey(t *testing.T) {
 	srv, got := apiServer(t, 200, `{"choices":[{"message":{"content":"x"}}]}`)
@@ -303,9 +328,10 @@ func TestNewFollowsTheBlockType(t *testing.T) {
 	cfg := config.Default()
 	cfg.Provider = "ollama"
 	cfg.Providers["ollama"] = config.Provider{
-		Type:    config.ProviderOpenAI,
-		Model:   "qwen3",
-		BaseURL: "http://localhost:11434/v1",
+		Type:            config.ProviderOpenAI,
+		Model:           "qwen3",
+		BaseURL:         "http://localhost:11434/v1",
+		ReasoningEffort: "none",
 	}
 
 	got, err := New(cfg)
@@ -316,7 +342,7 @@ func TestNewFollowsTheBlockType(t *testing.T) {
 	if !ok {
 		t.Fatalf("New returned %T, want OpenAI", got)
 	}
-	if r.Model != "qwen3" || r.BaseURL != "http://localhost:11434/v1" || r.APIKey != "" {
+	if r.Model != "qwen3" || r.BaseURL != "http://localhost:11434/v1" || r.APIKey != "" || r.ReasoningEffort != "none" {
 		t.Errorf("New = %+v", r)
 	}
 }

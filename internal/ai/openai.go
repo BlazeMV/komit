@@ -12,11 +12,14 @@ import (
 // OpenAI calls any OpenAI-compatible chat completions endpoint: OpenAI itself,
 // OpenRouter, Groq, Ollama, LM Studio. No token cap is sent — the reasoning
 // models reject max_tokens, and the prompt already asks for one line.
+// ReasoningEffort is opt-in for that same reason — an endpoint that does not
+// know the field rejects the request outright.
 type OpenAI struct {
-	Model   string
-	BaseURL string
-	APIKey  string
-	HTTP    *http.Client
+	Model           string
+	BaseURL         string
+	APIKey          string
+	ReasoningEffort string
+	HTTP            *http.Client
 }
 
 func (o OpenAI) Run(ctx context.Context, prompt string) (string, error) {
@@ -25,10 +28,15 @@ func (o OpenAI) Run(ctx context.Context, prompt string) (string, error) {
 		headers["authorization"] = "Bearer " + o.APIKey
 	}
 
-	data, err := postJSON(ctx, o.HTTP, "openai", o.BaseURL+"/chat/completions", headers, map[string]any{
+	body := map[string]any{
 		"model":    o.Model,
 		"messages": []message{{Role: "user", Content: prompt}},
-	})
+	}
+	if o.ReasoningEffort != "" {
+		body["reasoning_effort"] = o.ReasoningEffort
+	}
+
+	data, err := postJSON(ctx, o.HTTP, "openai", o.BaseURL+"/chat/completions", headers, body)
 	if err != nil {
 		return "", err
 	}

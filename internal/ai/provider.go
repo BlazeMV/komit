@@ -22,10 +22,11 @@ func New(cfg config.Config) (Runner, error) {
 		}, nil
 	case config.ProviderOpenAI:
 		return OpenAI{
-			Model:   p.Model,
-			BaseURL: cfg.BaseURL(),
-			APIKey:  cfg.APIKey(),
-			HTTP:    newHTTPClient(),
+			Model:           p.Model,
+			BaseURL:         cfg.BaseURL(),
+			APIKey:          cfg.APIKey(),
+			ReasoningEffort: p.ReasoningEffort,
+			HTTP:            newHTTPClient(),
 		}, nil
 	}
 	return nil, fmt.Errorf("provider %q has unknown kind %q", cfg.Provider, cfg.Kind())
