@@ -46,11 +46,10 @@ var defaultKeyEnv = map[string]string{
 	ProviderOpenAI:    "OPENAI_API_KEY",
 }
 
-// Provider is one backend's settings, stored under a free-form label. Type
-// names the implementation and defaults to the label, so a block called openai
-// needs no type; a second OpenAI-compatible endpoint sets type: openai. Which
-// other keys apply depends on the kind: Bin belongs to claude-cli, BaseURL and
-// the key fields to the API providers.
+// Provider is one backend's settings, stored under a free-form label. Type is
+// required and names the implementation — a label is never read as a kind, so
+// any number of blocks can share one. Which other keys apply depends on the
+// kind: Bin belongs to claude-cli, BaseURL and the key fields to the API ones.
 type Provider struct {
 	Type      string `yaml:"type"`
 	Model     string `yaml:"model"`
@@ -217,14 +216,8 @@ func mergeProviders(base, incoming map[string]Provider) map[string]Provider {
 // Active returns the selected provider's settings.
 func (c Config) Active() Provider { return c.Providers[c.Provider] }
 
-// Kind is the implementation the active block selects: its type, or its label
-// when it sets none.
-func (c Config) Kind() string {
-	if t := c.Active().Type; t != "" {
-		return t
-	}
-	return c.Provider
-}
+// Kind is the implementation the active block selects.
+func (c Config) Kind() string { return c.Active().Type }
 
 // labels lists the configured provider blocks, for error messages.
 func (c Config) labels() []string {
@@ -285,15 +278,27 @@ func (c Config) Validate() []error {
 		errs = append(errs, c.movedModelError())
 	}
 
+	// Every block is checked, not only the active one: a bad type in a backend
+	// you have not switched to yet should surface now rather than on the day you
+	// need it.
+	kinds := strings.Join(ProviderKinds, ", ")
+	for _, label := range c.labels() {
+		switch t := c.Providers[label].Type; {
+		case t == "":
+			errs = append(errs, fmt.Errorf("providers.%s.type is required — one of: %s", label, kinds))
+		case !slices.Contains(ProviderKinds, t):
+			errs = append(errs, fmt.Errorf("providers.%s.type %q is not one of: %s", label, t, kinds))
+		}
+	}
+
 	p, ok := c.Providers[c.Provider]
 	if !ok {
 		return append(errs, fmt.Errorf("provider %q has no block under providers — configured: %s",
 			c.Provider, strings.Join(c.labels(), ", ")))
 	}
-
-	kind := c.Kind()
+	kind := p.Type
 	if !slices.Contains(ProviderKinds, kind) {
-		return append(errs, c.unknownKindError())
+		return errs // already reported above, and nothing below can be checked
 	}
 
 	if p.Model == "" {
@@ -321,17 +326,6 @@ func (c Config) Validate() []error {
 		}
 	}
 	return errs
-}
-
-// unknownKindError distinguishes a mistyped type from a label that was never
-// given one — the second is the likelier mistake, and needs a different fix.
-func (c Config) unknownKindError() error {
-	kinds := strings.Join(ProviderKinds, ", ")
-	if c.Active().Type == "" {
-		return fmt.Errorf("providers.%s sets no type, and %q is not a built-in kind\n"+
-			"  add `type:` naming one of: %s", c.Provider, c.Provider, kinds)
-	}
-	return fmt.Errorf("providers.%s.type %q is not one of: %s", c.Provider, c.Active().Type, kinds)
 }
 
 func (c Config) movedModelError() error {

@@ -61,10 +61,13 @@ refresh:
   interval: 10
 providers:
   claude-cli:
+    type: claude-cli
     model: haiku
   anthropic:
+    type: anthropic
     model: claude-haiku-4-5
   openai:
+    type: openai
     model: gpt-5.6-luna
 prompt: |
   Write a git commit message for the diff below.
@@ -100,13 +103,14 @@ Each block under `providers` is a backend; `provider` names the one to use. Ther
 | `anthropic` | the Anthropic Messages API | an API key |
 | `openai` | any OpenAI-compatible `/chat/completions` endpoint | an API key, unless `base_url` is set |
 
-A block's name is a label of your choosing. `type` names its kind and defaults to the label, so a block called `openai` needs no `type` — but a second OpenAI-compatible endpoint gets its own label and says which kind it is. Since `openai` takes a `base_url`, that covers OpenRouter, Groq, DeepSeek, xAI, Ollama and LM Studio:
+A block's name is a label of your choosing and is never read as a kind — `type` is required on every block and names the kind. Any number of blocks can share one, so since `openai` takes a `base_url`, that covers OpenRouter, Groq, DeepSeek, xAI, Ollama and LM Studio:
 
 ```yaml
 provider: ollama
 
 providers:
   claude-cli:
+    type: claude-cli
     model: haiku
   ollama:
     type: openai
@@ -119,7 +123,7 @@ providers:
     api_key_env: OPENROUTER_API_KEY
 ```
 
-Configure as many as you like and switch between them by editing `provider`.
+Configure as many as you like and switch between them by editing `provider`. Every block is validated, not just the active one, so a typo in a backend you have not switched to yet is reported straight away.
 
 ### API keys
 
@@ -135,7 +139,7 @@ Setting `api_key_env` opts out of step 2 entirely, so a stray `OPENAI_API_KEY` c
 
 ### Startup checks
 
-komit validates the whole config before opening, and refuses to start with the problem named on stderr: a `provider` with no matching block, a block whose `type` is not a known kind, a block with no `model`, a missing `claude` binary, an unparseable `base_url`, or an API provider with no key. It also warns when `.komit.yml` is present but neither tracked nor ignored, since it will otherwise turn up in your change list.
+komit validates the whole config before opening, and refuses to start with the problem named on stderr: any block missing `type` or naming an unknown one, a `provider` with no matching block, a block with no `model`, a missing `claude` binary, an unparseable `base_url`, or an API provider with no key. It also warns when `.komit.yml` is present but neither tracked nor ignored, since it will otherwise turn up in your change list.
 
 Upgrading from v0.2: `model` moved from the top level into `providers.<name>.model`. komit prints the rewrite on startup.
 

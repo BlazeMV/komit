@@ -28,7 +28,8 @@ The promise: komit never leaves the user's index dirtier than it found it. Anyth
 
 ## Providers
 
-- A `providers` key is a **label**, not a kind. `Kind()` resolves it: the block's `type`, else the label. Everything that varies by backend — `BaseURL`, `APIKey`, `Validate`'s switch, `ai.New` — keys on `Kind()`, never on `c.Provider`. Two OpenAI-compatible endpoints must be able to coexist.
+- A `providers` key is a **label**, never a kind — `type` is required on every block and is the only thing that selects an implementation. Everything that varies by backend — `BaseURL`, `APIKey`, `Validate`'s switch, `ai.New` — keys on `Kind()`, never on `c.Provider`. Two OpenAI-compatible endpoints must be able to coexist.
+- `Validate` checks every block, not just the active one, so a bad `type` surfaces before you switch to it.
 - `Runner.Run` takes no model: which names are valid depends on the provider, so the model is fixed when the runner is built.
 - `config.Validate` runs in `main` before `tea.NewProgram`. Fatal problems go to stderr and exit 1 — the alt screen would swallow them otherwise. Non-fatal warnings ride into the model and clear on the first keypress.
 - `openai` sends no `max_tokens`: the reasoning models reject it.

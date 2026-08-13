@@ -282,12 +282,39 @@ providers:
 	}
 }
 
-// An unlabelled block keeps working, so v0.3 configs need no edit.
-func TestBlockNameIsTheDefaultKind(t *testing.T) {
-	withConfigHome(t, "provider: anthropic\n")
+// A label is never read as a kind, even when it happens to name one.
+func TestTypeIsRequiredAndNeverInferredFromTheLabel(t *testing.T) {
+	noKeysInEnv(t)
+	cfg := Config{
+		Provider:  ProviderAnthropic,
+		Providers: map[string]Provider{ProviderAnthropic: {Model: "claude-haiku-4-5", APIKey: "sk-x"}},
+	}
 
-	if got := load(t, t.TempDir()).Kind(); got != ProviderAnthropic {
-		t.Errorf("Kind() = %q, want the block name", got)
+	if got := cfg.Kind(); got != "" {
+		t.Errorf("Kind() = %q, want empty until type is set", got)
+	}
+	errs := cfg.Validate()
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "type is required") {
+		t.Fatalf("Validate = %v, want one problem naming the missing type", errs)
+	}
+}
+
+// A bad block you have not switched to still has to be reported.
+func TestValidateChecksEveryBlockNotJustTheActiveOne(t *testing.T) {
+	noKeysInEnv(t)
+	fakeBin(t, DefaultBin)
+	withConfigHome(t, "providers:\n  ollama:\n    model: qwen3\n  broken:\n    type: openai-compatible\n    model: x\n")
+
+	var joined []string
+	for _, e := range load(t, t.TempDir()).Validate() {
+		joined = append(joined, e.Error())
+	}
+	all := strings.Join(joined, "\n")
+	if !strings.Contains(all, "providers.ollama.type is required") {
+		t.Errorf("Validate = %v, want the untyped inactive block reported", joined)
+	}
+	if !strings.Contains(all, `providers.broken.type "openai-compatible"`) {
+		t.Errorf("Validate = %v, want the mistyped inactive block reported", joined)
 	}
 }
 
@@ -333,9 +360,9 @@ func TestValidate(t *testing.T) {
 		{name: "missing claude binary", config: "provider: claude-cli\n", noBin: true, want: "on PATH"},
 		{name: "provider names no block", config: "provider: gemini\n", want: "no block under providers"},
 		{
-			name:   "label with no type is not a kind",
+			name:   "block with no type",
 			config: "provider: ollama\nproviders:\n  ollama:\n    model: qwen3\n",
-			want:   "sets no type",
+			want:   "type is required",
 		},
 		{
 			name:   "mistyped type",
@@ -421,7 +448,7 @@ func TestValidateRejectsAProviderWithNoModel(t *testing.T) {
 	noKeysInEnv(t)
 	cfg := Config{
 		Provider:  ProviderOpenAI,
-		Providers: map[string]Provider{ProviderOpenAI: {APIKey: "sk-x"}},
+		Providers: map[string]Provider{ProviderOpenAI: {Type: ProviderOpenAI, APIKey: "sk-x"}},
 	}
 
 	errs := cfg.Validate()

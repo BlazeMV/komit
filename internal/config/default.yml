@@ -5,10 +5,13 @@ refresh:
   interval: 10
 providers:
   claude-cli:
+    type: claude-cli
     model: haiku
   anthropic:
+    type: anthropic
     model: claude-haiku-4-5
   openai:
+    type: openai
     model: gpt-5.6-luna
 prompt: |
   Write a git commit message for the diff below.
