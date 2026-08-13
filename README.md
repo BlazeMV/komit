@@ -25,6 +25,18 @@ go test ./... -race
 
 `go install ./cmd/komit` puts it on your PATH. `CLAUDE.md` covers the stack quirks worth knowing before changing anything.
 
+## Commands
+
+| Command | Does |
+| --- | --- |
+| `komit` | open the TUI in the current repository |
+| `komit init` | write the default config to your user config path |
+| `komit init --local` | write a repo-level `.komit.yml` |
+| `komit --version` | print the version — also `-v`, `version` |
+| `komit --help` | print the usage summary — also `-h`, `help` |
+
+Neither `init` form overwrites an existing file.
+
 ## Keys
 
 | Key | Action |

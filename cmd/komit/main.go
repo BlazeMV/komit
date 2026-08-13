@@ -43,11 +43,25 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+const usage = `komit — commit a selected subset of changed files with a generated message
+
+usage:
+  komit                 open the TUI in the current repository
+  komit init            write the default config to your user config path
+  komit init --local    write a repo-level .komit.yml
+  komit --version       print the version
+  komit --help          print this message
+
+aliases: -v, version for --version; -h, help for --help`
+
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "-v", "version":
 			fmt.Fprintf(stdout, "komit %s\n", currentVersion())
+			return 0
+		case "--help", "-h", "help":
+			fmt.Fprintln(stdout, usage)
 			return 0
 		case "init":
 			if len(args) > 1 && args[1] != "--local" {
@@ -71,7 +85,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 			return 0
 		default:
-			fmt.Fprintf(stderr, "unknown argument %q — usage: komit [init [--local]|--version]\n", args[0])
+			fmt.Fprintf(stderr, "unknown argument %q — run `komit --help`\n", args[0])
 			return 2
 		}
 	}

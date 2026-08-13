@@ -332,3 +332,51 @@ func TestInitRejectsUnknownFlag(t *testing.T) {
 		t.Errorf("stderr = %q, want the usage line", errOut.String())
 	}
 }
+
+func TestHelpFlag(t *testing.T) {
+	// Outside a repository, so help cannot depend on one.
+	t.Chdir(t.TempDir())
+
+	for _, arg := range []string{"--help", "-h", "help"} {
+		t.Run(arg, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			if code := run([]string{arg}, &out, &errOut); code != 0 {
+				t.Fatalf("exit code = %d, stderr = %q", code, errOut.String())
+			}
+			for _, want := range []string{"usage:", "komit init", "--local", "--version"} {
+				if !strings.Contains(out.String(), want) {
+					t.Errorf("help output missing %q:\n%s", want, out.String())
+				}
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("stderr = %q, want help on stdout", errOut.String())
+			}
+		})
+	}
+}
+
+func TestVersionAliases(t *testing.T) {
+	for _, arg := range []string{"--version", "-v", "version"} {
+		t.Run(arg, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			if code := run([]string{arg}, &out, &errOut); code != 0 {
+				t.Fatalf("exit code = %d, stderr = %q", code, errOut.String())
+			}
+			if !strings.Contains(out.String(), "komit") {
+				t.Errorf("stdout = %q", out.String())
+			}
+		})
+	}
+}
+
+func TestUnknownArgumentPointsAtHelp(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--bogus"}, &out, &errOut); code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errOut.String(), "--help") {
+		t.Errorf("stderr = %q, want it to point at --help", errOut.String())
+	}
+}
