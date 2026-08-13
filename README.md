@@ -51,7 +51,7 @@ komit commits exactly the files you select, using `git commit --only`, leaving t
 
 Config lives at `$XDG_CONFIG_HOME/komit/config.yml` (else `~/.config/komit/config.yml`), overridden per key by a `.komit.yml` in the repo root.
 
-`komit init` writes the defaults and refuses to overwrite:
+`komit init` writes the defaults, and `komit init --local` writes a repo-level `.komit.yml`. Neither overwrites an existing file.
 
 ```yaml
 provider: claude-cli
@@ -135,7 +135,19 @@ Resolved in this order, first hit winning:
 
 Setting `api_key_env` opts out of step 2 entirely, so a stray `OPENAI_API_KEY` cannot stand in for the OpenRouter key you meant.
 
-`api_key` is read from your user config only. In a repo's `.komit.yml` it is ignored and komit says so — that file is one the repo can commit.
+`api_key` is read from your user config only — see [What a repo may set](#what-a-repo-may-set).
+
+### What a repo may set
+
+A `.komit.yml` is committed, so it is authored by anyone who can commit to the repository — including a merged pull request. komit therefore reads only these keys from it:
+
+| Read from `.komit.yml` | Ignored, with a warning |
+| --- | --- |
+| `prompt`, `recent_commits`, `refresh` | `provider`, `providers` (and so `type`, `model`, `base_url`, `api_key`, `api_key_env`, `bin`) |
+
+A repo can shape the message komit writes. It cannot choose where your code is sent, or what komit executes. Without that split, a cloned repository could point `base_url` at its own server — collecting your diff *and* the key from your own config — or set `bin` to a script in its tree.
+
+`komit init --local` writes a starting `.komit.yml` containing only the keys a repo may set, and refuses to overwrite an existing one.
 
 ### Startup checks
 

@@ -129,42 +129,108 @@ func TestRepoConfigOverridesGlobal(t *testing.T) {
 	}
 }
 
-// Unmarshalling into a live map replaces whole blocks, so a repo file setting
-// one key must not wipe base_url and api_key from the global config.
+// Unmarshalling into a live map replaces whole blocks, so a user config setting
+// one key must not wipe the rest of the built-in block.
 func TestProviderBlockMergeKeepsSiblingKeys(t *testing.T) {
-	withConfigHome(t, "provider: openai\nproviders:\n  openai:\n    model: gpt-5-mini\n    base_url: https://example.test/v1\n    api_key: sk-global\n")
-	repo := withRepoConfig(t, "providers:\n  openai:\n    model: gpt-5\n")
+	withConfigHome(t, "provider: openai\nproviders:\n  openai:\n    base_url: https://example.test/v1\n    api_key: sk-mine\n")
 
-	cfg := load(t, repo)
+	cfg := load(t, t.TempDir())
 	p := cfg.Active()
-	if p.Model != "gpt-5" {
-		t.Errorf("model = %q, want the repo override", p.Model)
+	if p.Type != ProviderOpenAI {
+		t.Errorf("type = %q, want the built-in value kept", p.Type)
 	}
-	if p.BaseURL != "https://example.test/v1" {
-		t.Errorf("base_url = %q, want the global value kept", p.BaseURL)
+	if p.Model != Default().Providers[ProviderOpenAI].Model {
+		t.Errorf("model = %q, want the built-in value kept", p.Model)
 	}
-	if p.APIKey != "sk-global" {
-		t.Errorf("api_key = %q, want the global value kept", p.APIKey)
+	if p.BaseURL != "https://example.test/v1" || p.APIKey != "sk-mine" {
+		t.Errorf("overrides lost: %+v", p)
 	}
 }
 
-func TestRepoConfigCannotContributeAnAPIKey(t *testing.T) {
-	noKeysInEnv(t)
-	withConfigHome(t, "provider: openai\n")
-	repo := withRepoConfig(t, "providers:\n  openai:\n    api_key: sk-committed\n")
+// The repo file is authored by whoever can commit to the repo. Letting it pick
+// the backend would hand a cloned repository the diff, the user's key, and —
+// through bin — arbitrary execution.
+func TestRepoConfigCannotChooseTheBackend(t *testing.T) {
+	tests := []struct {
+		name   string
+		repo   string
+		vector string
+	}{
+		{
+			name:   "redirect the endpoint",
+			repo:   "providers:\n  openai:\n    base_url: https://attacker.test/v1\n",
+			vector: "base_url",
+		},
+		{
+			name:   "replace the executable",
+			repo:   "providers:\n  claude-cli:\n    bin: ./tools/payload\n",
+			vector: "bin",
+		},
+		{
+			name:   "contribute a key",
+			repo:   "providers:\n  openai:\n    api_key: sk-committed\n",
+			vector: "api_key",
+		},
+		{
+			name:   "switch the active provider",
+			repo:   "provider: claude-cli\n",
+			vector: "provider",
+		},
+		{
+			name:   "name a whole new backend",
+			repo:   "provider: evil\nproviders:\n  evil:\n    type: openai\n    base_url: https://attacker.test/v1\n",
+			vector: "new block",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			noKeysInEnv(t)
+			withConfigHome(t, "provider: openai\nproviders:\n  openai:\n    base_url: https://mine.test/v1\n    api_key: sk-mine\n")
+			repo := withRepoConfig(t, tt.repo)
+
+			cfg, warnings, err := Load(repo)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Provider != ProviderOpenAI {
+				t.Errorf("provider = %q, want the user's choice kept (%s)", cfg.Provider, tt.vector)
+			}
+			if got := cfg.BaseURL(); got != "https://mine.test/v1" {
+				t.Errorf("BaseURL() = %q, want the user's endpoint (%s)", got, tt.vector)
+			}
+			if got := cfg.Bin(); got != DefaultBin {
+				t.Errorf("Bin() = %q, want the default binary (%s)", got, tt.vector)
+			}
+			if got := cfg.APIKey(); got != "sk-mine" {
+				t.Errorf("APIKey() = %q, want the user's own key (%s)", got, tt.vector)
+			}
+			if len(warnings) != 1 || !strings.Contains(warnings[0], "ignored") {
+				t.Errorf("warnings = %v, want one saying the keys were ignored", warnings)
+			}
+		})
+	}
+}
+
+// The repo file's actual job still has to work, and silently.
+func TestRepoConfigStillShapesThePrompt(t *testing.T) {
+	withConfigHome(t, "")
+	repo := withRepoConfig(t, "prompt: repo prompt {{diff}}\nrecent_commits: 3\nrefresh:\n  interval: 0\n")
 
 	cfg, warnings, err := Load(repo)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := cfg.Active().APIKey; got != "" {
-		t.Errorf("api_key = %q, want the repo file's key dropped", got)
+	if cfg.Prompt != "repo prompt {{diff}}" {
+		t.Errorf("Prompt = %q", cfg.Prompt)
 	}
-	if cfg.APIKey() != "" {
-		t.Errorf("APIKey() = %q, want empty", cfg.APIKey())
+	if cfg.RecentCommits != 3 {
+		t.Errorf("RecentCommits = %d, want 3", cfg.RecentCommits)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "api_key") {
-		t.Errorf("warnings = %v, want one naming api_key", warnings)
+	if cfg.Refresh.Every() != 0 {
+		t.Errorf("Every = %v, want polling disabled", cfg.Refresh.Every())
+	}
+	if len(warnings) != 0 {
+		t.Errorf("warnings = %v, want none for a repo file that stays in its lane", warnings)
 	}
 }
 

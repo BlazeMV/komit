@@ -244,3 +244,91 @@ func TestSecondInitLeavesTheFirstConfigIntact(t *testing.T) {
 		t.Errorf("config was modified by failed second init:\nbefore: %q\nafter: %q", string(data1), string(data2))
 	}
 }
+
+func TestInitLocalWritesRepoConfig(t *testing.T) {
+	dir := inRepo(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"init", "--local"}, &out, &errOut); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, errOut.String())
+	}
+
+	path := filepath.Join(dir, config.RepoFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	if !strings.Contains(string(data), "{{diff}}") {
+		t.Errorf("written config has no prompt:\n%s", data)
+	}
+	if !strings.Contains(out.String(), config.RepoFile) {
+		t.Errorf("stdout = %q, want the written path", out.String())
+	}
+}
+
+// The template must not model the keys komit will refuse to read from it.
+func TestInitLocalWritesNoBackendKeys(t *testing.T) {
+	inRepo(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"init", "--local"}, &out, &errOut); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, errOut.String())
+	}
+
+	cfg, warnings, err := config.Load(".")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("warnings = %v, want a template komit reads without complaint", warnings)
+	}
+	if cfg.Provider != config.Default().Provider {
+		t.Errorf("the template changed the provider to %q", cfg.Provider)
+	}
+}
+
+func TestInitLocalDoesNotClobberExistingConfig(t *testing.T) {
+	dir := inRepo(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path := filepath.Join(dir, config.RepoFile)
+	if err := os.WriteFile(path, []byte("prompt: mine {{diff}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"init", "--local"}, &out, &errOut); code == 0 {
+		t.Error("exit code = 0, want non-zero when .komit.yml already exists")
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "prompt: mine {{diff}}\n" {
+		t.Errorf("existing .komit.yml was overwritten: %q", data)
+	}
+}
+
+func TestInitLocalOutsideARepoFails(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"init", "--local"}, &out, &errOut); code == 0 {
+		t.Fatal("exit code = 0 outside a repository, want non-zero")
+	}
+	if !strings.Contains(strings.ToLower(errOut.String()), "git repository") {
+		t.Errorf("stderr = %q, want an explanation", errOut.String())
+	}
+}
+
+func TestInitRejectsUnknownFlag(t *testing.T) {
+	inRepo(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"init", "--globl"}, &out, &errOut); code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errOut.String(), "--local") {
+		t.Errorf("stderr = %q, want the usage line", errOut.String())
+	}
+}

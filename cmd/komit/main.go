@@ -50,25 +50,34 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "komit %s\n", currentVersion())
 			return 0
 		case "init":
+			if len(args) > 1 && args[1] != "--local" {
+				fmt.Fprintf(stderr, "unknown argument %q — usage: komit init [--local]\n", args[1])
+				return 2
+			}
+			if len(args) > 1 {
+				repo, err := openRepo(stderr)
+				if err != nil {
+					return 1
+				}
+				if err := initLocalConfig(stdout, repo.Dir); err != nil {
+					fmt.Fprintln(stderr, err)
+					return 1
+				}
+				return 0
+			}
 			if err := initConfig(stdout); err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
 			return 0
 		default:
-			fmt.Fprintf(stderr, "unknown argument %q — usage: komit [init|--version]\n", args[0])
+			fmt.Fprintf(stderr, "unknown argument %q — usage: komit [init [--local]|--version]\n", args[0])
 			return 2
 		}
 	}
 
-	cwd, err := os.Getwd()
+	repo, err := openRepo(stderr)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	repo, err := git.Open(cwd)
-	if err != nil {
-		fmt.Fprintln(stderr, "not a git repository (or git is not installed)")
 		return 1
 	}
 	cfg, warnings, err := config.Load(repo.Dir)
@@ -105,8 +114,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// initConfig writes the built-in defaults to the user config path, refusing to
-// overwrite an existing file.
+// openRepo resolves the repository containing the working directory.
+func openRepo(stderr io.Writer) (*git.Repo, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return nil, err
+	}
+	repo, err := git.Open(cwd)
+	if err != nil {
+		fmt.Fprintln(stderr, "not a git repository (or git is not installed)")
+		return nil, err
+	}
+	return repo, nil
+}
+
+// initConfig writes the built-in defaults to the user config path.
 func initConfig(stdout io.Writer) error {
 	path, err := config.UserPath()
 	if err != nil {
@@ -115,6 +138,17 @@ func initConfig(stdout io.Writer) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	return writeNew(stdout, path, config.DefaultYAML())
+}
+
+// initLocalConfig writes a starting .komit.yml to the repo root. It carries only
+// the keys a repo may set — komit ignores the rest in a file the repo commits.
+func initLocalConfig(stdout io.Writer, repoRoot string) error {
+	return writeNew(stdout, filepath.Join(repoRoot, config.RepoFile), config.LocalYAML())
+}
+
+// writeNew creates path with body, refusing to overwrite an existing file.
+func writeNew(stdout io.Writer, path string, body []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
@@ -122,7 +156,7 @@ func initConfig(stdout io.Writer) error {
 		}
 		return err
 	}
-	_, err = f.Write(config.DefaultYAML())
+	_, err = f.Write(body)
 	closeErr := f.Close()
 	if err != nil || closeErr != nil {
 		os.Remove(path)

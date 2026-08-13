@@ -20,6 +20,9 @@ import (
 //go:embed default.yml
 var defaultYAML []byte
 
+//go:embed local.yml
+var localYAML []byte
+
 // Supported provider names.
 const (
 	ProviderCLI       = "claude-cli"
@@ -104,6 +107,12 @@ func DefaultYAML() []byte {
 	return append([]byte(nil), defaultYAML...)
 }
 
+// LocalYAML is the starting point for a repo's .komit.yml: the keys a repo is
+// allowed to set, and nothing else.
+func LocalYAML() []byte {
+	return append([]byte(nil), localYAML...)
+}
+
 // UserPath is the global config location: $XDG_CONFIG_HOME/komit/config.yml,
 // falling back to ~/.config/komit/config.yml.
 func UserPath() (string, error) {
@@ -130,13 +139,13 @@ func Load(repoRoot string) (Config, []string, error) {
 
 	var warnings []string
 	for _, src := range []struct {
-		path         string
-		allowSecrets bool
+		path    string
+		trusted bool
 	}{
 		{userPath, true},
 		{filepath.Join(repoRoot, RepoFile), false},
 	} {
-		w, err := mergeFile(&cfg, src.path, src.allowSecrets)
+		w, err := mergeFile(&cfg, src.path, src.trusted)
 		if err != nil {
 			return cfg, warnings, err
 		}
@@ -151,7 +160,12 @@ func Load(repoRoot string) (Config, []string, error) {
 // keys the file names — interval: 0 has to stay distinct from an absent
 // interval. Providers cannot: unmarshalling into a live map replaces whole
 // blocks, so they are merged field by field instead.
-func mergeFile(cfg *Config, path string, allowSecrets bool) ([]string, error) {
+//
+// An untrusted file — the repo's, authored by anyone who can commit to it —
+// may shape the prompt but never the backend. provider and providers are
+// dropped wholesale: allowing base_url would send the diff and the user's own
+// key to an endpoint the repo picked, and bin would run code from the repo.
+func mergeFile(cfg *Config, path string, trusted bool) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -160,28 +174,42 @@ func mergeFile(cfg *Config, path string, allowSecrets bool) ([]string, error) {
 		return nil, err
 	}
 
-	merged := cfg.Providers
+	provider, merged := cfg.Provider, cfg.Providers
 	cfg.Providers = nil
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		cfg.Providers = merged
+		cfg.Provider, cfg.Providers = provider, merged
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	incoming := cfg.Providers
 
 	var warnings []string
-	if !allowSecrets {
-		for name, p := range incoming {
-			if p.APIKey == "" {
-				continue
-			}
+	if !trusted {
+		if rejected := declaredBackendKeys(data); len(rejected) > 0 {
 			warnings = append(warnings, fmt.Sprintf(
-				"%s: ignored api_key under providers.%s — keep keys out of a file the repo can commit", path, name))
-			p.APIKey = ""
-			incoming[name] = p
+				"%s: ignored %s — a repository cannot choose where komit sends your code or what it runs",
+				path, strings.Join(rejected, " and ")))
 		}
+		cfg.Provider, incoming = provider, nil
 	}
 	cfg.Providers = mergeProviders(merged, incoming)
 	return warnings, nil
+}
+
+// declaredBackendKeys reports which backend-selecting keys a file sets, so the
+// warning names what was dropped rather than firing on every repo file.
+func declaredBackendKeys(data []byte) []string {
+	var probe Config
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return nil
+	}
+	var out []string
+	if probe.Provider != "" {
+		out = append(out, "provider")
+	}
+	if len(probe.Providers) > 0 {
+		out = append(out, "providers")
+	}
+	return out
 }
 
 // mergeProviders overlays incoming onto base per field. Every Provider field is

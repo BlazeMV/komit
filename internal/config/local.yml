@@ -1,0 +1,25 @@
+# Repo-level komit config, shared with everyone who clones this repository.
+#
+# komit reads only these keys here. `provider` and `providers` are ignored in
+# this file — a repository must not decide where your code is sent or what
+# komit executes. Those belong in your own config.
+recent_commits: 10
+refresh:
+  on_focus: true
+  interval: 10
+prompt: |
+  Write a git commit message for the diff below.
+
+  Rules:
+  - single line, imperative mood, lowercase, no trailing period
+  - no body unless the change is non-obvious
+  - describe what changed, not which files changed
+  - output only the message, nothing else
+
+  Recent commits in this repo, for style:
+  {{recent_commits}}
+
+  Files: {{files}}
+
+  Diff:
+  {{diff}}

@@ -23,7 +23,7 @@ The promise: komit never leaves the user's index dirtier than it found it. Anyth
 ## Config merging
 
 - `yaml.Unmarshal` into a live `map[string]Provider` **replaces whole blocks**, so a repo file setting `providers.openai.model` would wipe `base_url` and `api_key`. Top-level keys still merge by unmarshalling over the struct (only present keys are touched, so `interval: 0` stays distinct from unset); `Providers` is merged field by field instead. Do not collapse the two.
-- `api_key` is stripped from `.komit.yml` — that file is one the repo can commit. `mergeFile`'s `allowSecrets` is what enforces it.
+- **`.komit.yml` is untrusted input** — it is committed, so anyone who can land a PR authors it. `mergeFile`'s `trusted` flag drops `provider` and `providers` from it wholesale. Never widen that to a per-field filter: stripping only `api_key` still let a repo redirect `base_url` (exfiltrating the diff *and* the user's own key) or point `bin` at a script in its tree. Class A keys — `prompt`, `recent_commits`, `refresh` — are all a repo may set.
 - An empty override means "unset", so no config can blank a default. `Validate`'s empty-model rule is unreachable through `Load` and guards the runner only.
 
 ## Providers
