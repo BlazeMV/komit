@@ -97,7 +97,7 @@ func TestLoadDefaultsWhenNothingConfigured(t *testing.T) {
 
 func TestEveryProviderHasADefaultModel(t *testing.T) {
 	cfg := Default()
-	for _, name := range ProviderNames {
+	for _, name := range ProviderKinds {
 		if cfg.Providers[name].Model == "" {
 			t.Errorf("provider %q has no default model", name)
 		}
@@ -236,6 +236,61 @@ func TestAPIKeyResolution(t *testing.T) {
 	}
 }
 
+// A label picks the block; type picks the implementation. Two OpenAI-compatible
+// endpoints must be able to coexist, which is the whole point of labels.
+func TestLabelledBlocksCoexist(t *testing.T) {
+	noKeysInEnv(t)
+	withConfigHome(t, `provider: ollama
+providers:
+  openai:
+    model: gpt-5.6-luna
+    api_key: sk-openai
+  ollama:
+    type: openai
+    model: qwen3
+    base_url: http://localhost:11434/v1
+  openrouter:
+    type: openai
+    model: anthropic/claude-haiku-4.5
+    api_key: sk-or
+`)
+
+	cfg := load(t, t.TempDir())
+	if got := cfg.Kind(); got != ProviderOpenAI {
+		t.Errorf("Kind() = %q, want %q", got, ProviderOpenAI)
+	}
+	if got := cfg.Active().Model; got != "qwen3" {
+		t.Errorf("model = %q, want the ollama block's", got)
+	}
+	if got := cfg.BaseURL(); got != "http://localhost:11434/v1" {
+		t.Errorf("BaseURL() = %q", got)
+	}
+	if got := cfg.APIKey(); got != "" {
+		t.Errorf("APIKey() = %q, want the ollama block to carry no key", got)
+	}
+	if errs := cfg.Validate(); len(errs) != 0 {
+		t.Errorf("Validate = %v, want no problems", errs)
+	}
+
+	// Switching backends is one word, and the other blocks are untouched.
+	cfg.Provider = "openrouter"
+	if got := cfg.APIKey(); got != "sk-or" {
+		t.Errorf("after switching, APIKey() = %q, want sk-or", got)
+	}
+	if got := cfg.BaseURL(); got != OpenAIBaseURL {
+		t.Errorf("after switching, BaseURL() = %q, want the vendor default", got)
+	}
+}
+
+// An unlabelled block keeps working, so v0.3 configs need no edit.
+func TestBlockNameIsTheDefaultKind(t *testing.T) {
+	withConfigHome(t, "provider: anthropic\n")
+
+	if got := load(t, t.TempDir()).Kind(); got != ProviderAnthropic {
+		t.Errorf("Kind() = %q, want the block name", got)
+	}
+}
+
 func TestBaseURL(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -276,7 +331,21 @@ func TestValidate(t *testing.T) {
 	}{
 		{name: "default config with the CLI present"},
 		{name: "missing claude binary", config: "provider: claude-cli\n", noBin: true, want: "on PATH"},
-		{name: "unknown provider", config: "provider: gemini\n", want: "not one of"},
+		{name: "provider names no block", config: "provider: gemini\n", want: "no block under providers"},
+		{
+			name:   "label with no type is not a kind",
+			config: "provider: ollama\nproviders:\n  ollama:\n    model: qwen3\n",
+			want:   "sets no type",
+		},
+		{
+			name:   "mistyped type",
+			config: "provider: ollama\nproviders:\n  ollama:\n    type: openai-compatible\n    model: qwen3\n",
+			want:   "is not one of",
+		},
+		{
+			name:   "labelled openai block against a local server",
+			config: "provider: ollama\nproviders:\n  ollama:\n    type: openai\n    model: qwen3\n    base_url: http://localhost:11434/v1\n",
+		},
 		{
 			name:   "anthropic without a key",
 			config: "provider: anthropic\n",

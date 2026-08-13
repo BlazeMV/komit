@@ -92,34 +92,34 @@ A refresh keeps your selection: files you ticked stay ticked, and a file that ap
 
 ## Providers
 
-`provider` picks which backend generates the message; each one's settings live under `providers`.
+Each block under `providers` is a backend; `provider` names the one to use. There are three kinds:
 
-| `provider` | Generates via | Needs |
+| Kind | Generates via | Needs |
 | --- | --- | --- |
 | `claude-cli` (default) | the `claude` CLI, on your subscription | the binary on PATH |
 | `anthropic` | the Anthropic Messages API | an API key |
 | `openai` | any OpenAI-compatible `/chat/completions` endpoint | an API key, unless `base_url` is set |
 
-Because `openai` takes a `base_url`, it also covers OpenRouter, Groq, DeepSeek, xAI, Ollama and LM Studio:
+A block's name is a label of your choosing. `type` names its kind and defaults to the label, so a block called `openai` needs no `type` — but a second OpenAI-compatible endpoint gets its own label and says which kind it is. Since `openai` takes a `base_url`, that covers OpenRouter, Groq, DeepSeek, xAI, Ollama and LM Studio:
 
 ```yaml
-provider: openai
+provider: ollama
+
 providers:
-  openai:
+  claude-cli:
+    model: haiku
+  ollama:
+    type: openai
+    model: qwen2.5-coder:7b
+    base_url: http://localhost:11434/v1   # a local server needs no key at all
+  openrouter:
+    type: openai
     model: anthropic/claude-haiku-4.5
     base_url: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
 ```
 
-A local server needs no credentials at all:
-
-```yaml
-provider: openai
-providers:
-  openai:
-    model: qwen3
-    base_url: http://localhost:11434/v1
-```
+Configure as many as you like and switch between them by editing `provider`.
 
 ### API keys
 
@@ -135,7 +135,7 @@ Setting `api_key_env` opts out of step 2 entirely, so a stray `OPENAI_API_KEY` c
 
 ### Startup checks
 
-komit validates the whole config before opening, and refuses to start with the problem named on stderr: an unknown `provider`, a provider with no `model`, a missing `claude` binary, an unparseable `base_url`, or an API provider with no key. It also warns when `.komit.yml` is present but neither tracked nor ignored, since it will otherwise turn up in your change list.
+komit validates the whole config before opening, and refuses to start with the problem named on stderr: a `provider` with no matching block, a block whose `type` is not a known kind, a block with no `model`, a missing `claude` binary, an unparseable `base_url`, or an API provider with no key. It also warns when `.komit.yml` is present but neither tracked nor ignored, since it will otherwise turn up in your change list.
 
 Upgrading from v0.2: `model` moved from the top level into `providers.<name>.model`. komit prints the rewrite on startup.
 

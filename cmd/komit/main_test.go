@@ -52,7 +52,7 @@ func TestBadConfigStopsBeforeTheTUI(t *testing.T) {
 		config string
 		want   string
 	}{
-		{"unknown provider", "provider: gemini\n", "not one of"},
+		{"provider names no block", "provider: gemini\n", "has no block under providers"},
 		{"v0.2 top-level model", "model: haiku\n", "moved under providers"},
 		{"api provider with no key", "provider: anthropic\n", "needs an API key"},
 	}

@@ -297,3 +297,26 @@ func firstMessage(t *testing.T, body map[string]any) string {
 	content, _ := first["content"].(string)
 	return content
 }
+
+// A labelled block builds the runner its type names, not its label.
+func TestNewFollowsTheBlockType(t *testing.T) {
+	cfg := config.Default()
+	cfg.Provider = "ollama"
+	cfg.Providers["ollama"] = config.Provider{
+		Type:    config.ProviderOpenAI,
+		Model:   "qwen3",
+		BaseURL: "http://localhost:11434/v1",
+	}
+
+	got, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	r, ok := got.(OpenAI)
+	if !ok {
+		t.Fatalf("New returned %T, want OpenAI", got)
+	}
+	if r.Model != "qwen3" || r.BaseURL != "http://localhost:11434/v1" || r.APIKey != "" {
+		t.Errorf("New = %+v", r)
+	}
+}

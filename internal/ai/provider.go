@@ -10,7 +10,7 @@ import (
 // New trusts that the settings it reads are present and well formed.
 func New(cfg config.Config) (Runner, error) {
 	p := cfg.Active()
-	switch cfg.Provider {
+	switch cfg.Kind() {
 	case config.ProviderCLI:
 		return CLI{Bin: cfg.Bin(), Model: p.Model}, nil
 	case config.ProviderAnthropic:
@@ -28,5 +28,5 @@ func New(cfg config.Config) (Runner, error) {
 			HTTP:    newHTTPClient(),
 		}, nil
 	}
-	return nil, fmt.Errorf("unknown provider %q", cfg.Provider)
+	return nil, fmt.Errorf("provider %q has unknown kind %q", cfg.Provider, cfg.Kind())
 }

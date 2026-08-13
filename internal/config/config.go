@@ -27,8 +27,8 @@ const (
 	ProviderOpenAI    = "openai"
 )
 
-// ProviderNames lists every supported provider.
-var ProviderNames = []string{ProviderCLI, ProviderAnthropic, ProviderOpenAI}
+// ProviderKinds lists every provider implementation a block can select.
+var ProviderKinds = []string{ProviderCLI, ProviderAnthropic, ProviderOpenAI}
 
 // DefaultBin is the claude executable looked up when no bin is configured.
 const DefaultBin = "claude"
@@ -46,9 +46,13 @@ var defaultKeyEnv = map[string]string{
 	ProviderOpenAI:    "OPENAI_API_KEY",
 }
 
-// Provider is one backend's settings. Which keys apply depends on the name: Bin
-// belongs to claude-cli, BaseURL and the key fields to the API providers.
+// Provider is one backend's settings, stored under a free-form label. Type
+// names the implementation and defaults to the label, so a block called openai
+// needs no type; a second OpenAI-compatible endpoint sets type: openai. Which
+// other keys apply depends on the kind: Bin belongs to claude-cli, BaseURL and
+// the key fields to the API providers.
 type Provider struct {
+	Type      string `yaml:"type"`
 	Model     string `yaml:"model"`
 	BaseURL   string `yaml:"base_url"`
 	APIKey    string `yaml:"api_key"`
@@ -194,6 +198,7 @@ func mergeProviders(base, incoming map[string]Provider) map[string]Provider {
 	for name, in := range incoming {
 		p := out[name]
 		for _, f := range []struct{ dst, src *string }{
+			{&p.Type, &in.Type},
 			{&p.Model, &in.Model},
 			{&p.BaseURL, &in.BaseURL},
 			{&p.APIKey, &in.APIKey},
@@ -212,6 +217,25 @@ func mergeProviders(base, incoming map[string]Provider) map[string]Provider {
 // Active returns the selected provider's settings.
 func (c Config) Active() Provider { return c.Providers[c.Provider] }
 
+// Kind is the implementation the active block selects: its type, or its label
+// when it sets none.
+func (c Config) Kind() string {
+	if t := c.Active().Type; t != "" {
+		return t
+	}
+	return c.Provider
+}
+
+// labels lists the configured provider blocks, for error messages.
+func (c Config) labels() []string {
+	out := make([]string, 0, len(c.Providers))
+	for name := range c.Providers {
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Bin is the claude executable to run.
 func (c Config) Bin() string {
 	if bin := c.Active().Bin; bin != "" {
@@ -225,7 +249,7 @@ func (c Config) BaseURL() string {
 	if u := c.Active().BaseURL; u != "" {
 		return strings.TrimRight(u, "/")
 	}
-	switch c.Provider {
+	switch c.Kind() {
 	case ProviderAnthropic:
 		return AnthropicBaseURL
 	case ProviderOpenAI:
@@ -242,7 +266,7 @@ func (c Config) APIKey() string {
 	p := c.Active()
 	env := p.APIKeyEnv
 	if env == "" {
-		env = defaultKeyEnv[c.Provider]
+		env = defaultKeyEnv[c.Kind()]
 	}
 	if env != "" {
 		if v := os.Getenv(env); v != "" {
@@ -261,23 +285,28 @@ func (c Config) Validate() []error {
 		errs = append(errs, c.movedModelError())
 	}
 
-	if !slices.Contains(ProviderNames, c.Provider) {
-		return append(errs, fmt.Errorf("provider %q is not one of: %s",
-			c.Provider, strings.Join(ProviderNames, ", ")))
+	p, ok := c.Providers[c.Provider]
+	if !ok {
+		return append(errs, fmt.Errorf("provider %q has no block under providers — configured: %s",
+			c.Provider, strings.Join(c.labels(), ", ")))
 	}
 
-	p := c.Active()
+	kind := c.Kind()
+	if !slices.Contains(ProviderKinds, kind) {
+		return append(errs, c.unknownKindError())
+	}
+
 	if p.Model == "" {
 		errs = append(errs, fmt.Errorf("providers.%s.model is empty — name the model to generate with", c.Provider))
 	}
 
-	switch c.Provider {
+	switch kind {
 	case ProviderCLI:
 		if _, err := exec.LookPath(c.Bin()); err != nil {
 			errs = append(errs, fmt.Errorf(
 				"provider %q needs the %s binary on PATH, but it was not found\n"+
 					"  install it from https://claude.com/claude-code, or pick another provider in %s",
-				ProviderCLI, c.Bin(), configPath()))
+				c.Provider, c.Bin(), configPath()))
 		}
 	case ProviderAnthropic, ProviderOpenAI:
 		if p.BaseURL != "" {
@@ -287,16 +316,27 @@ func (c Config) Validate() []error {
 		}
 		// A base_url means a self-hosted or proxied endpoint, and Ollama and LM
 		// Studio need no key at all — only the vendor endpoints must have one.
-		if c.APIKey() == "" && (c.Provider == ProviderAnthropic || p.BaseURL == "") {
+		if c.APIKey() == "" && (kind == ProviderAnthropic || p.BaseURL == "") {
 			errs = append(errs, c.missingKeyError())
 		}
 	}
 	return errs
 }
 
+// unknownKindError distinguishes a mistyped type from a label that was never
+// given one — the second is the likelier mistake, and needs a different fix.
+func (c Config) unknownKindError() error {
+	kinds := strings.Join(ProviderKinds, ", ")
+	if c.Active().Type == "" {
+		return fmt.Errorf("providers.%s sets no type, and %q is not a built-in kind\n"+
+			"  add `type:` naming one of: %s", c.Provider, c.Provider, kinds)
+	}
+	return fmt.Errorf("providers.%s.type %q is not one of: %s", c.Provider, c.Active().Type, kinds)
+}
+
 func (c Config) movedModelError() error {
 	name := c.Provider
-	if !slices.Contains(ProviderNames, name) {
+	if _, ok := c.Providers[name]; !ok {
 		name = ProviderCLI
 	}
 	return fmt.Errorf("top-level 'model' moved under providers.<name>.model in v0.3\n"+
@@ -307,7 +347,7 @@ func (c Config) movedModelError() error {
 func (c Config) missingKeyError() error {
 	return fmt.Errorf("provider %q needs an API key\n"+
 		"  export %s, or set api_key_env / api_key under providers.%s in %s",
-		c.Provider, defaultKeyEnv[c.Provider], c.Provider, configPath())
+		c.Provider, defaultKeyEnv[c.Kind()], c.Provider, configPath())
 }
 
 func checkURL(raw string) error {
