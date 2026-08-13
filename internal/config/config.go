@@ -247,8 +247,31 @@ func (c Config) Active() Provider { return c.Providers[c.Provider] }
 // Kind is the implementation the active block selects.
 func (c Config) Kind() string { return c.Active().Type }
 
-// labels lists the configured provider blocks, for error messages.
-func (c Config) labels() []string {
+// WithProvider is c with a different block selected. Everything that varies by
+// backend reads Active(), so swapping the label is all a switch needs.
+func (c Config) WithProvider(label string) Config {
+	c.Provider = label
+	return c
+}
+
+// Usable reports why label cannot be selected, or nil when it can. It is the
+// per-block half of Validate, so a provider can be ruled out before switching
+// to it rather than at the next generation.
+func (c Config) Usable(label string) error {
+	if _, ok := c.Providers[label]; !ok {
+		return c.noBlockError(label)
+	}
+	if err := c.typeError(label); err != nil {
+		return err
+	}
+	if errs := c.WithProvider(label).settingsErrors(); len(errs) > 0 {
+		return errs[0]
+	}
+	return nil
+}
+
+// Labels lists the configured provider blocks in sorted order.
+func (c Config) Labels() []string {
 	out := make([]string, 0, len(c.Providers))
 	for name := range c.Providers {
 		out = append(out, name)
@@ -309,31 +332,44 @@ func (c Config) Validate() []error {
 	// Every block is checked, not only the active one: a bad type in a backend
 	// you have not switched to yet should surface now rather than on the day you
 	// need it.
-	kinds := strings.Join(ProviderKinds, ", ")
-	for _, label := range c.labels() {
-		switch t := c.Providers[label].Type; {
-		case t == "":
-			errs = append(errs, fmt.Errorf("providers.%s.type is required — one of: %s", label, kinds))
-		case !slices.Contains(ProviderKinds, t):
-			errs = append(errs, fmt.Errorf("providers.%s.type %q is not one of: %s", label, t, kinds))
+	for _, label := range c.Labels() {
+		if err := c.typeError(label); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
-	p, ok := c.Providers[c.Provider]
-	if !ok {
-		return append(errs, fmt.Errorf("provider %q has no block under providers — configured: %s",
-			c.Provider, strings.Join(c.labels(), ", ")))
+	if _, ok := c.Providers[c.Provider]; !ok {
+		return append(errs, c.noBlockError(c.Provider))
 	}
-	kind := p.Type
-	if !slices.Contains(ProviderKinds, kind) {
+	if c.typeError(c.Provider) != nil {
 		return errs // already reported above, and nothing below can be checked
 	}
+	return append(errs, c.settingsErrors()...)
+}
+
+// typeError reports a missing or unrecognised type on one block.
+func (c Config) typeError(label string) error {
+	kinds := strings.Join(ProviderKinds, ", ")
+	switch t := c.Providers[label].Type; {
+	case t == "":
+		return fmt.Errorf("providers.%s.type is required — one of: %s", label, kinds)
+	case !slices.Contains(ProviderKinds, t):
+		return fmt.Errorf("providers.%s.type %q is not one of: %s", label, t, kinds)
+	}
+	return nil
+}
+
+// settingsErrors reports everything wrong with the active block beyond its type.
+// It returns all of them rather than the first so one run surfaces the lot.
+func (c Config) settingsErrors() []error {
+	var errs []error
+	p := c.Active()
 
 	if p.Model == "" {
 		errs = append(errs, fmt.Errorf("providers.%s.model is empty — name the model to generate with", c.Provider))
 	}
 
-	switch kind {
+	switch c.Kind() {
 	case ProviderCLI:
 		if _, err := exec.LookPath(c.Bin()); err != nil {
 			errs = append(errs, fmt.Errorf(
@@ -349,11 +385,16 @@ func (c Config) Validate() []error {
 		}
 		// A base_url means a self-hosted or proxied endpoint, and Ollama and LM
 		// Studio need no key at all — only the vendor endpoints must have one.
-		if c.APIKey() == "" && (kind == ProviderAnthropic || p.BaseURL == "") {
+		if c.APIKey() == "" && (c.Kind() == ProviderAnthropic || p.BaseURL == "") {
 			errs = append(errs, c.missingKeyError())
 		}
 	}
 	return errs
+}
+
+func (c Config) noBlockError(label string) error {
+	return fmt.Errorf("provider %q has no block under providers — configured: %s",
+		label, strings.Join(c.Labels(), ", "))
 }
 
 func (c Config) movedModelError() error {

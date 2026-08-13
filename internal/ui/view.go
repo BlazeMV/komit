@@ -8,7 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-const helpLine = "space sel · a all · d diff · g gen · r regen · e edit · c commit · P push · R refresh · q quit"
+const helpLine = "space sel · a all · d diff · g gen · r regen · e edit · c commit · P push · p provider · R refresh · q quit"
 
 // View satisfies tea.Model, which renders a View (not a string) as of v2.
 func (m Model) View() tea.View {
@@ -47,6 +47,11 @@ func (m Model) render() string {
 
 	if m.nudging {
 		b.WriteString(m.nudge.View())
+		b.WriteString("\n")
+	}
+
+	if m.picking {
+		b.WriteString("\n" + m.pickerPane())
 		b.WriteString("\n")
 	}
 
@@ -100,6 +105,29 @@ func (m Model) diffPane() string {
 		return dimStyle.Render("loading diff…")
 	}
 	return titleStyle.Render(m.diffPath) + "\n" + m.diff.View()
+}
+
+func (m Model) pickerPane() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("select provider"))
+	b.WriteString("\n")
+	for i, r := range m.pickRows {
+		cursor := "  "
+		if i == m.pickCursor {
+			cursor = cursorStyle.Render("▸ ")
+		}
+		box := "[ ]"
+		if r.label == m.cfg.Provider {
+			box = selectedStyle.Render("[x]")
+		}
+		fmt.Fprintf(&b, "%s%s %-14s %-11s %s\n", cursor, box, r.label, r.kind, r.model)
+		if r.problem != nil {
+			b.WriteString(warnStyle.Render("        " + firstLine(r.problem.Error())))
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString(dimStyle.Render("enter pick · esc cancel"))
+	return b.String()
 }
 
 func (m Model) fileList() string {

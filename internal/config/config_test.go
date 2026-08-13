@@ -623,3 +623,109 @@ func TestRenderLeavesUnknownPlaceholders(t *testing.T) {
 		t.Errorf("Render = %q", got)
 	}
 }
+
+// switchable is the multi-block config the picker exists for: the active block
+// is fine, a sibling is not.
+func switchable() Config {
+	return Config{
+		Provider: "openrouter",
+		Providers: map[string]Provider{
+			"openrouter": {Type: ProviderOpenAI, Model: "glm-4.6", BaseURL: "https://openrouter.test/v1", APIKey: "sk-or"},
+			"anthropic":  {Type: ProviderAnthropic, Model: "claude-opus-5"},
+			"claude":     {Type: ProviderCLI, Model: "sonnet"},
+			"broken":     {Type: "gemini", Model: "flash"},
+		},
+	}
+}
+
+func TestWithProviderResolvesTheNamedBlockNotTheActiveOne(t *testing.T) {
+	cfg := switchable()
+
+	if got := cfg.WithProvider("claude").Kind(); got != ProviderCLI {
+		t.Errorf("Kind() = %q, want %q", got, ProviderCLI)
+	}
+	if got := cfg.WithProvider("anthropic").BaseURL(); got != AnthropicBaseURL {
+		t.Errorf("BaseURL() = %q, want the anthropic vendor endpoint", got)
+	}
+	if got := cfg.WithProvider("anthropic").Active().Model; got != "claude-opus-5" {
+		t.Errorf("Model = %q, want claude-opus-5", got)
+	}
+	if cfg.Provider != "openrouter" {
+		t.Errorf("WithProvider mutated the receiver: Provider = %q", cfg.Provider)
+	}
+}
+
+// The prompt and refresh settings are not the provider's; switching must carry
+// them over untouched.
+func TestWithProviderKeepsEverythingElse(t *testing.T) {
+	cfg := switchable()
+	cfg.Prompt = "write a message"
+	cfg.RecentCommits = 7
+	cfg.Refresh = Refresh{OnFocus: true, Interval: 3}
+
+	got := cfg.WithProvider("claude")
+	if got.Prompt != cfg.Prompt || got.RecentCommits != 7 || got.Refresh != cfg.Refresh {
+		t.Errorf("WithProvider dropped non-provider settings: %+v", got)
+	}
+}
+
+func TestUsableChecksTheNamedBlock(t *testing.T) {
+	tests := []struct {
+		name  string
+		label string
+		env   map[string]string
+		noBin bool
+		want  string // empty means usable
+	}{
+		{name: "active block", label: "openrouter"},
+		{name: "sibling missing its key", label: "anthropic", want: "needs an API key"},
+		{
+			name:  "sibling with its key exported",
+			label: "anthropic",
+			env:   map[string]string{"ANTHROPIC_API_KEY": "sk-ant"},
+		},
+		{name: "sibling whose binary is absent", label: "claude", noBin: true, want: "on PATH"},
+		{name: "sibling with a bad type", label: "broken", want: "is not one of"},
+		{name: "no such block", label: "gemini", want: "no block under providers"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			noKeysInEnv(t)
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			if tt.noBin {
+				t.Setenv("PATH", t.TempDir())
+			} else {
+				fakeBin(t, DefaultBin)
+			}
+
+			err := switchable().Usable(tt.label)
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("Usable(%q) = %v, want usable", tt.label, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Usable(%q) = nil, want a problem naming %q", tt.label, tt.want)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("Usable(%q) = %v, want a problem naming %q", tt.label, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLabelsAreSorted(t *testing.T) {
+	got := switchable().Labels()
+	want := []string{"anthropic", "broken", "claude", "openrouter"}
+	if len(got) != len(want) {
+		t.Fatalf("Labels() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Labels() = %v, want %v", got, want)
+		}
+	}
+}

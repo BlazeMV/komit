@@ -14,6 +14,7 @@ const (
 	keyEdit      = "e"
 	keyEditor    = "E"
 	keyAmend     = "A"
+	keyProvider  = "p"
 	keyCommit    = "c"
 	keyPush      = "P"
 	keyFocus     = "tab"

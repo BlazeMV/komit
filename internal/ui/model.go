@@ -19,6 +19,15 @@ type item struct {
 	selected bool
 }
 
+// providerRow is one line of the provider picker: what the block is, and why it
+// cannot be chosen when problem is set.
+type providerRow struct {
+	label   string
+	kind    string
+	model   string
+	problem error
+}
+
 type focus int
 
 const (
@@ -53,6 +62,12 @@ type Model struct {
 	epoch    int
 	nudging  bool
 	nudge    textinput.Model
+
+	// picking is the provider chooser. Rows are built when it opens so each
+	// block's usability is read once, not on every render.
+	picking    bool
+	pickCursor int
+	pickRows   []providerRow
 
 	// warnings are config problems that do not stop komit. They show until the
 	// first keypress, so a startup notice cannot be missed or become wallpaper.

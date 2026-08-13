@@ -30,7 +30,8 @@ The promise: komit never leaves the user's index dirtier than it found it. Anyth
 
 - A `providers` key is a **label**, never a kind — `type` is required on every block and is the only thing that selects an implementation. Everything that varies by backend — `BaseURL`, `APIKey`, `Validate`'s switch, `ai.New` — keys on `Kind()`, never on `c.Provider`. Two OpenAI-compatible endpoints must be able to coexist.
 - `Validate` checks every block, not just the active one, so a bad `type` surfaces before you switch to it.
-- `Runner.Run` takes no model: which names are valid depends on the provider, so the model is fixed when the runner is built.
+- `Usable(label)` is `Validate`'s per-block half, used by the picker to rule a provider out before switching to it. Both route through `typeError`/`settingsErrors` — add a new check there, not to one caller.
+- `Runner.Run` takes no model: which names are valid depends on the provider, so the model is fixed when the runner is built. A runtime switch therefore rebuilds via `ai.New`; nothing mutates a live runner.
 - `config.Validate` runs in `main` before `tea.NewProgram`. Fatal problems go to stderr and exit 1 — the alt screen would swallow them otherwise. Non-fatal warnings ride into the model and clear on the first keypress.
 - `openai` sends no `max_tokens`: the reasoning models reject it.
 - Provider tests use `httptest.Server`. A handler that blocks on `r.Context().Done()` will hang `srv.Close()` — a client-side cancel does not reliably cancel the server's request context, so give the handler its own release channel.
@@ -39,6 +40,7 @@ The promise: komit never leaves the user's index dirtier than it found it. Anyth
 
 - Generations are epoch-tagged; a superseded generation's result is ignored. Errors clear `busy`/`cancel` only for the current epoch.
 - Refusal branches clear `m.err` — the view ranks `err` above `status`, so a stale error masks the refusal otherwise.
+- The provider picker resolves each block's usability when it opens, not per render: those checks read `PATH` and the environment. A switch is session-only — nothing is written back to the config file.
 
 ## Refresh
 

@@ -174,6 +174,25 @@ func (m *Model) resizePanes() {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While the picker is open, every key belongs to it — a stray 'a' must not
+	// reach the file list behind it.
+	if m.picking {
+		switch msg.String() {
+		case keyUp, keyUpAlt:
+			m.movePick(-1)
+		case keyDown, keyDownAlt:
+			m.movePick(1)
+		case "enter":
+			return m.choose()
+		case keyCancel, keyProvider:
+			m.picking = false
+		case "ctrl+c":
+			cmd := m.quit()
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	// While nudging, all runes belong to the nudge input.
 	if m.nudging {
 		switch msg.String() {
@@ -279,6 +298,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "refreshed"
 		m.err = nil
 		return m, m.loadStatus(true)
+	case keyProvider:
+		if m.busy {
+			return m, nil
+		}
+		m.openPicker()
 	case keyRegen:
 		if m.busy {
 			return m, nil
