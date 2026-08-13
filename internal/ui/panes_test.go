@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BlazeMV/komit/internal/config"
 	"github.com/BlazeMV/komit/internal/git"
 )
 
@@ -76,6 +77,42 @@ func TestGeneratedMsgFillsEditor(t *testing.T) {
 	}
 	if m.busy {
 		t.Error("busy flag still set after generation finished")
+	}
+}
+
+func TestHeaderShowsActiveProviderAndModel(t *testing.T) {
+	m := modelWithFiles()
+	m.cfg = config.Config{
+		Provider: "openrouter",
+		Providers: map[string]config.Provider{
+			"anthropic":  {Type: config.ProviderAnthropic, Model: "claude-opus-5"},
+			"openrouter": {Type: config.ProviderOpenAI, Model: "glm-4.6"},
+		},
+	}
+
+	out := m.View().Content
+	if !strings.Contains(out, "openrouter · glm-4.6") {
+		t.Errorf("header does not name the active provider and model:\n%s", out)
+	}
+	if strings.Contains(out, "claude-opus-5") {
+		t.Errorf("header names an inactive provider's model:\n%s", out)
+	}
+}
+
+func TestProviderLineOmitsModelWhenBlockHasNone(t *testing.T) {
+	m := Model{cfg: config.Config{
+		Provider:  "local",
+		Providers: map[string]config.Provider{"local": {Type: config.ProviderOpenAI}},
+	}}
+	if got := m.providerLine(); got != "local" {
+		t.Errorf("providerLine() = %q, want %q", got, "local")
+	}
+}
+
+func TestHeaderOmitsProviderWhenUnconfigured(t *testing.T) {
+	header, _, _ := strings.Cut(modelWithFiles().View().Content, "\n")
+	if strings.Count(header, "·") != 1 {
+		t.Errorf("header has a dangling separator with no provider configured: %q", header)
 	}
 }
 

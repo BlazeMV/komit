@@ -23,6 +23,9 @@ func (m Model) render() string {
 
 	b.WriteString(titleStyle.Render("komit"))
 	b.WriteString(dimStyle.Render(" · " + m.branchLine()))
+	if p := m.providerLine(); p != "" {
+		b.WriteString(dimStyle.Render(" · " + p))
+	}
 	if m.amend {
 		b.WriteString(" " + amendStyle.Render("AMEND"))
 	}
@@ -77,6 +80,19 @@ func (m Model) branchLine() string {
 		s += fmt.Sprintf(" ↓%d", m.branch.Behind)
 	}
 	return s
+}
+
+// providerLine names the active block and the model it is pinned to. The label
+// is shown, not the kind: two blocks can share a type, and the label is what the
+// config names.
+func (m Model) providerLine() string {
+	if m.cfg.Provider == "" {
+		return ""
+	}
+	if model := m.cfg.Active().Model; model != "" {
+		return m.cfg.Provider + " · " + model
+	}
+	return m.cfg.Provider
 }
 
 func (m Model) diffPane() string {
