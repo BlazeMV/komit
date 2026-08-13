@@ -36,6 +36,43 @@ func newTestModel(t *testing.T, runner *fakeRunner) Model {
 	return m
 }
 
+func TestRecentCommitsConfigControlsPrompt(t *testing.T) {
+	tests := []struct {
+		name string
+		n    int
+		want bool
+	}{
+		{"omitted when zero", 0, false},
+		{"included when positive", 1, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeRunner{out: "msg"}
+			m := New(newUIRepo(t), config.Config{
+				Model:         "haiku",
+				RecentCommits: tt.n,
+				Prompt:        "{{recent_commits}}",
+			}, runner)
+			m.width, m.height = 100, 30
+			m = update(m, statusMsg{
+				files:  []git.FileChange{{Path: "a.go", Index: ' ', Worktree: 'M'}},
+				branch: git.Branch{Name: "master"},
+			})
+
+			next, cmd := m.Update(key("g"))
+			m = next.(Model)
+			if cmd == nil {
+				t.Fatal("g produced no command")
+			}
+			update(m, drain(t, cmd))
+
+			if got := strings.Contains(runner.prompt, "init"); got != tt.want {
+				t.Errorf("prompt = %q, has recent commits = %v, want %v", runner.prompt, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGenerateFillsMessageFromRunner(t *testing.T) {
 	runner := &fakeRunner{out: "feat: from runner"}
 	m := newTestModel(t, runner)

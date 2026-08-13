@@ -55,6 +55,7 @@ Config lives at `$XDG_CONFIG_HOME/komit/config.yml` (else `~/.config/komit/confi
 
 ```yaml
 model: haiku
+recent_commits: 10
 refresh:
   on_focus: true
   interval: 10
@@ -75,6 +76,8 @@ prompt: |
   Diff:
   {{diff}}
 ```
+
+`recent_commits` is how many commit subjects fill `{{recent_commits}}`, which anchors the generated message to the repo's existing style. Set it to `0` to leave the placeholder empty and skip the `git log` entirely.
 
 `refresh` controls how the change list picks up edits made outside komit. `on_focus` reloads it when the terminal regains focus; `interval` is the seconds between background polls, which run only while komit has focus and pause while it is generating or committing. Set `interval: 0` to poll only when you press `R`.
 

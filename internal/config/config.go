@@ -32,9 +32,11 @@ func (r Refresh) Every() time.Duration {
 
 // Config is komit's entire configuration surface.
 type Config struct {
-	Model   string  `yaml:"model"`
-	Prompt  string  `yaml:"prompt"`
-	Refresh Refresh `yaml:"refresh"`
+	Model string `yaml:"model"`
+	// RecentCommits is how many commit subjects feed {{recent_commits}}; 0 omits them.
+	RecentCommits int     `yaml:"recent_commits"`
+	Prompt        string  `yaml:"prompt"`
+	Refresh       Refresh `yaml:"refresh"`
 }
 
 // RepoFile is the per-repository override read from the repo root.

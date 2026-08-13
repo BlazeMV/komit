@@ -465,9 +465,12 @@ func (m *Model) generate(nudge string) tea.Cmd {
 		if err != nil {
 			return finish(nil, err)
 		}
-		recent, err := repo.RecentCommits(10)
-		if err != nil {
-			return finish(nil, err)
+		var recent string
+		if n := cfg.RecentCommits; n > 0 {
+			recent, err = repo.RecentCommits(n)
+			if err != nil {
+				return finish(nil, err)
+			}
 		}
 
 		out, err := ai.Generate(ctx, runner, cfg, config.Vars{

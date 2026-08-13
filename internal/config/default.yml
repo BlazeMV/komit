@@ -1,4 +1,5 @@
 model: haiku
+recent_commits: 10
 refresh:
   on_focus: true
   interval: 10
