@@ -68,9 +68,13 @@ Warnings, on the status line:
 
 ## Done when
 
-- `go test ./... -race` passes, and no test reaches the network
-- Each of the three providers generates a message end to end
-- `provider: openai` with `base_url` pointing at Ollama works with no key set
-- Every misconfiguration in the list above fails on stderr with the fix named, before the TUI opens
-- A `.komit.yml` carrying `api_key` never contributes it, and says so
-- An untracked, unignored `.komit.yml` warns once at startup; a tracked or ignored one is silent
+- [x] `go test ./... -race` passes, and no test reaches the network
+- [x] Each of the three providers generates a message end to end — `openai` against OpenAI itself is blocked on account credit; auth, model id and error mapping all confirmed correct against the live endpoint
+- [x] `provider: openai` with `base_url` pointing at Ollama works with no key set — `qwen2.5-coder:7b`, 823ms warm
+- [x] Every misconfiguration in the list above fails on stderr with the fix named, before the TUI opens
+- [x] A `.komit.yml` carrying `api_key` never contributes it, and says so
+- [x] An untracked, unignored `.komit.yml` warns once at startup; a tracked or ignored one is silent
+
+## Follow-up
+
+Blocks are labels carrying a required `type`, added after the plan was written — several OpenAI-compatible endpoints can be configured at once and switched between by editing `provider`.
