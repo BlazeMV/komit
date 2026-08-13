@@ -50,21 +50,21 @@ Warnings, on the status line:
 
 ## Steps
 
-- [ ] `config`: `Provider{Model, BaseURL, APIKey, APIKeyEnv, Bin}` + `Providers map[string]Provider` + `Provider string`; keep `Model string` solely as a tripwire for the v0.2 layout
-- [ ] `config`: `Load` keeps per-file `Unmarshal` for top-level scalars — `interval: 0` must stay distinguishable from unset — and hand-merges `Providers` per field; `yaml.Unmarshal` into an existing map replaces whole blocks
-- [ ] `config`: `mergeFile(cfg, path, allowSecrets)`; strip `api_key` from every incoming block when false, returning a warning
-- [ ] `config`: `Active() (Provider, error)`; `Validate() []error` covering every rule above
-- [ ] `config`: `RepoFileWarning(repo)` — exists && `git ls-files` empty && `git check-ignore` non-zero
-- [ ] `config/default.yml`: `provider: claude-cli` + all three blocks
-- [ ] `ai`: `Runner.Run(ctx, prompt)` — model moves onto the runner, it is provider config; update `Generate`, `CLI`, and both stubs
-- [ ] `ai/provider.go`: `New(cfg) (Runner, error)`
-- [ ] `ai/anthropic.go`, `ai/openai.go`: request, response, error mapping, context cancellation
-- [ ] `ai/claude.go`: `Model` field; drop `ErrMissing` in favour of validation
-- [ ] `cmd/komit`: run `Validate` before `tea.NewProgram`; `komit init` writes the nested config
-- [ ] `ui`: drop `claudeMissingHint`; carry the config warnings into the startup status
-- [ ] confirm `gpt-5-mini` and `claude-haiku-4-5` are current ids
-- [ ] tests: nested merge keeps sibling keys, `interval: 0` still disables polling, repo `api_key` stripped, every validation rule, both runners against `httptest.Server`, `komit init` output
-- [ ] README config section and the `model: haiku` example; CLAUDE.md gotchas
+- [x] `config`: `Provider{Model, BaseURL, APIKey, APIKeyEnv, Bin}` + `Providers map[string]Provider` + `Provider string`; keep `Model string` solely as a tripwire for the v0.2 layout
+- [x] `config`: `Load` keeps per-file `Unmarshal` for top-level scalars — `interval: 0` must stay distinguishable from unset — and hand-merges `Providers` per field; `yaml.Unmarshal` into an existing map replaces whole blocks
+- [x] `config`: `mergeFile(cfg, path, allowSecrets)`; strip `api_key` from every incoming block when false, returning a warning
+- [x] `config`: `Active() (Provider, error)`; `Validate() []error` covering every rule above — `Active()` needs no error, the caller validates first
+- [x] `config`: `RepoFileWarning(repo)` — exists && `git ls-files` empty && `git check-ignore` non-zero — landed as `git.Repo.Loose`, which is where `run` lives
+- [x] `config/default.yml`: `provider: claude-cli` + all three blocks
+- [x] `ai`: `Runner.Run(ctx, prompt)` — model moves onto the runner, it is provider config; update `Generate`, `CLI`, and both stubs
+- [x] `ai/provider.go`: `New(cfg) (Runner, error)`
+- [x] `ai/anthropic.go`, `ai/openai.go`: request, response, error mapping, context cancellation
+- [x] `ai/claude.go`: `Model` field; drop `ErrMissing` in favour of validation — kept, it still guards the binary vanishing mid-session
+- [x] `cmd/komit`: run `Validate` before `tea.NewProgram`; `komit init` writes the nested config
+- [x] `ui`: drop `claudeMissingHint`; carry the config warnings into the startup status
+- [x] confirm `gpt-5-mini` and `claude-haiku-4-5` are current ids — `gpt-5-mini` was retired; now `gpt-5.6-luna`
+- [x] tests: nested merge keeps sibling keys, `interval: 0` still disables polling, repo `api_key` stripped, every validation rule, both runners against `httptest.Server`, `komit init` output
+- [x] README config section and the `model: haiku` example; CLAUDE.md gotchas
 
 ## Done when
 

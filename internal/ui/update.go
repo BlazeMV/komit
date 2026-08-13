@@ -156,6 +156,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyMsg:
+		m.warnings = nil
 		return m.handleKey(msg)
 	}
 	return m, nil

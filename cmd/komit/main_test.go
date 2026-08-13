@@ -3,12 +3,78 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/BlazeMV/komit/internal/config"
 )
+
+// fakeClaude puts a stub claude on PATH so the default provider validates
+// without the real CLI installed.
+func fakeClaude(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, config.DefaultBin), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// inRepo makes a fresh git repository the working directory.
+func inRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init", "-b", "master").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	t.Chdir(dir)
+	return dir
+}
+
+// writeUserConfig puts contents at the global config path under home.
+func writeUserConfig(t *testing.T, home, contents string) {
+	t.Helper()
+	dir := filepath.Join(home, "komit")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBadConfigStopsBeforeTheTUI(t *testing.T) {
+	tests := []struct {
+		name   string
+		config string
+		want   string
+	}{
+		{"unknown provider", "provider: gemini\n", "not one of"},
+		{"v0.2 top-level model", "model: haiku\n", "moved under providers"},
+		{"api provider with no key", "provider: anthropic\n", "needs an API key"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("ANTHROPIC_API_KEY", "")
+			inRepo(t)
+			fakeClaude(t)
+			home := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", home)
+			writeUserConfig(t, home, tt.config)
+
+			var out, errOut bytes.Buffer
+			if code := run(nil, &out, &errOut); code != 1 {
+				t.Fatalf("exit code = %d, want 1", code)
+			}
+			if !strings.Contains(errOut.String(), tt.want) {
+				t.Errorf("stderr = %q, want it to name %q", errOut.String(), tt.want)
+			}
+		})
+	}
+}
 
 func TestVersionFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
@@ -78,7 +144,6 @@ func TestInitWritesDefaultConfig(t *testing.T) {
 	}
 }
 
-// initConfig hand-builds the YAML, so it can drift from the embedded defaults.
 func TestInitWritesEveryDefault(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)
@@ -89,11 +154,11 @@ func TestInitWritesEveryDefault(t *testing.T) {
 	}
 
 	// Load reads the file just written, so a missing key shows up as a default.
-	got, err := config.Load(t.TempDir())
+	got, _, err := config.Load(t.TempDir())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got != config.Default() {
+	if !reflect.DeepEqual(got, config.Default()) {
 		t.Errorf("round-tripped config = %+v, want the defaults %+v", got, config.Default())
 	}
 
@@ -101,8 +166,30 @@ func TestInitWritesEveryDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "refresh:") {
-		t.Errorf("written config has no refresh block:\n%s", data)
+	for _, want := range []string{"refresh:", "providers:", "provider: " + config.ProviderCLI} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("written config has no %q:\n%s", want, data)
+		}
+	}
+}
+
+// A config komit writes must be one komit will start with.
+func TestInitWritesAConfigThatValidates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	fakeClaude(t)
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"init"}, &out, &errOut); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, errOut.String())
+	}
+
+	cfg, _, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if errs := cfg.Validate(); len(errs) != 0 {
+		t.Errorf("the written config does not validate: %v", errs)
 	}
 }
 

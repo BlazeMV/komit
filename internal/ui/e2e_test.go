@@ -16,13 +16,13 @@ import (
 
 type e2eRunner struct{}
 
-func (e2eRunner) Run(context.Context, string, string) (string, error) {
+func (e2eRunner) Run(context.Context, string) (string, error) {
 	return "feat: end to end\n", nil
 }
 
 func TestSelectGenerateCommitFlow(t *testing.T) {
 	repo := newUIRepo(t) // one committed file, modified in the working tree
-	m := New(repo, config.Config{Model: "haiku", Prompt: "{{diff}}"}, e2eRunner{})
+	m := New(repo, config.Config{Prompt: "{{diff}}"}, e2eRunner{}, nil)
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(100, 30))
 
@@ -78,7 +78,7 @@ func newPushedUIRepo(t *testing.T) *git.Repo {
 
 func TestAmendRefusalFlow(t *testing.T) {
 	repo := newPushedUIRepo(t)
-	m := New(repo, config.Config{Model: "haiku", Prompt: "{{diff}}"}, e2eRunner{})
+	m := New(repo, config.Config{Prompt: "{{diff}}"}, e2eRunner{}, nil)
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(100, 30))
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {

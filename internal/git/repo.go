@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -141,6 +143,23 @@ func (r *Repo) DrainIntents() error {
 		}
 	}
 	return firstErr
+}
+
+// Loose reports whether path sits in the working tree with git neither tracking
+// nor ignoring it — one keystroke from being swept into a commit. Errors count
+// as not loose: this drives a warning, which must never be the noisy answer.
+func (r *Repo) Loose(path string) bool {
+	if _, err := os.Stat(filepath.Join(r.Dir, path)); err != nil {
+		return false
+	}
+	out, err := r.run("ls-files", "--", path)
+	if err != nil || strings.TrimSpace(out) != "" {
+		return false
+	}
+	// check-ignore exits 1 when nothing matches, so the printed path — not the
+	// status — is what separates "ignored" from "git could not tell us".
+	ignored, err := r.runTolerating(1, "check-ignore", "--", path)
+	return err == nil && strings.TrimSpace(ignored) == ""
 }
 
 // Status lists every change in the working tree, including untracked files.

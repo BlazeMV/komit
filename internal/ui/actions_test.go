@@ -19,7 +19,7 @@ type fakeRunner struct {
 	err    error
 }
 
-func (f *fakeRunner) Run(_ context.Context, _ string, prompt string) (string, error) {
+func (f *fakeRunner) Run(_ context.Context, prompt string) (string, error) {
 	f.prompt = prompt
 	return f.out, f.err
 }
@@ -27,7 +27,7 @@ func (f *fakeRunner) Run(_ context.Context, _ string, prompt string) (string, er
 func newTestModel(t *testing.T, runner *fakeRunner) Model {
 	t.Helper()
 	repo := newUIRepo(t) // helper below: temp git repo with two modified files
-	m := New(repo, config.Config{Model: "haiku", Prompt: "{{diff}}"}, runner)
+	m := New(repo, config.Config{Prompt: "{{diff}}"}, runner, nil)
 	m.width, m.height = 100, 30
 	m = update(m, statusMsg{
 		files:  []git.FileChange{{Path: "a.go", Index: ' ', Worktree: 'M'}},
@@ -49,10 +49,9 @@ func TestRecentCommitsConfigControlsPrompt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := &fakeRunner{out: "msg"}
 			m := New(newUIRepo(t), config.Config{
-				Model:         "haiku",
 				RecentCommits: tt.n,
 				Prompt:        "{{recent_commits}}",
-			}, runner)
+			}, runner, nil)
 			m.width, m.height = 100, 30
 			m = update(m, statusMsg{
 				files:  []git.FileChange{{Path: "a.go", Index: ' ', Worktree: 'M'}},
@@ -155,8 +154,29 @@ func TestAmendToggles(t *testing.T) {
 	}
 }
 
-// C: claude missing from PATH gets an install hint, not a bare error.
-func TestGenerationMissingClaudeShowsInstallHint(t *testing.T) {
+func TestWarningsShowAtStartupThenClearOnTheFirstKey(t *testing.T) {
+	m := New(newUIRepo(t), config.Config{Prompt: "{{diff}}"}, &fakeRunner{},
+		[]string{".komit.yml is untracked and not ignored"})
+	m.width, m.height = 100, 30
+	m = update(m, statusMsg{
+		files:  []git.FileChange{{Path: "a.go", Index: ' ', Worktree: 'M'}},
+		branch: git.Branch{Name: "master"},
+	})
+
+	if out := m.View().Content; !strings.Contains(out, "untracked and not ignored") {
+		t.Errorf("startup view does not show the warning:\n%s", out)
+	}
+
+	next, _ := m.Update(key("j"))
+	m = next.(Model)
+	if out := m.View().Content; strings.Contains(out, "untracked and not ignored") {
+		t.Errorf("warning survived the first keypress:\n%s", out)
+	}
+}
+
+// C: startup validation covers a missing claude, so the mid-session case only
+// has to surface the error rather than explain how to install it.
+func TestGenerationMissingClaudeShowsTheError(t *testing.T) {
 	m := newTestModel(t, &fakeRunner{err: ai.ErrMissing})
 
 	next, cmd := m.Update(key("g"))
@@ -166,12 +186,8 @@ func TestGenerationMissingClaudeShowsInstallHint(t *testing.T) {
 	}
 	m = update(m, drain(t, cmd))
 
-	out := m.View().Content
-	if !strings.Contains(out, "not found on PATH") || !strings.Contains(out, "install") {
-		t.Errorf("view does not show the missing-claude install hint:\n%s", out)
-	}
-	if !strings.Contains(out, "$EDITOR") {
-		t.Errorf("view does not mention writing the message by hand:\n%s", out)
+	if out := m.View().Content; !strings.Contains(out, "not found on PATH") {
+		t.Errorf("view does not report the missing claude binary:\n%s", out)
 	}
 }
 
@@ -360,7 +376,7 @@ func TestCommitRunsAndOnlySelectedPathsLand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(repo, config.Config{}, &fakeRunner{})
+	m := New(repo, config.Config{}, &fakeRunner{}, nil)
 	m.width, m.height = 100, 30
 	m = update(m, statusMsg{
 		files: []git.FileChange{
@@ -406,7 +422,7 @@ func TestCommitUntrackedFileIsCommittedAndOthersStayUntracked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(repo, config.Config{}, &fakeRunner{})
+	m := New(repo, config.Config{}, &fakeRunner{}, nil)
 	m.width, m.height = 100, 30
 	m = update(m, statusMsg{
 		files: []git.FileChange{
@@ -447,7 +463,7 @@ func TestFailedCommitWithUntrackedSelectedCleansUpIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(repo, config.Config{}, &fakeRunner{})
+	m := New(repo, config.Config{}, &fakeRunner{}, nil)
 	m.width, m.height = 100, 30
 	m = update(m, statusMsg{
 		files:  []git.FileChange{{Path: "new.go", Index: '?', Worktree: '?'}},
@@ -491,7 +507,7 @@ func TestPushStillHappensWhenPostCommitCleanupFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(repo, config.Config{}, &fakeRunner{})
+	m := New(repo, config.Config{}, &fakeRunner{}, nil)
 	m.width, m.height = 100, 30
 	m = update(m, statusMsg{
 		files:  []git.FileChange{{Path: "new.go", Index: '?', Worktree: '?'}},
@@ -529,7 +545,7 @@ func TestPushStillHappensWhenPostCommitCleanupFails(t *testing.T) {
 // blockingRunner parks a generation in flight until its context is cancelled.
 type blockingRunner struct{ started chan struct{} }
 
-func (b *blockingRunner) Run(ctx context.Context, _, _ string) (string, error) {
+func (b *blockingRunner) Run(ctx context.Context, _ string) (string, error) {
 	close(b.started)
 	<-ctx.Done()
 	return "", ctx.Err()
@@ -548,7 +564,7 @@ func TestQuitDuringGenerationUndoesIntentToAdd(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &blockingRunner{started: make(chan struct{})}
-	m := New(repo, config.Config{Model: "haiku", Prompt: "{{diff}}"}, runner)
+	m := New(repo, config.Config{Prompt: "{{diff}}"}, runner, nil)
 	m.width, m.height = 100, 30
 	m = update(m, statusMsg{
 		files:  []git.FileChange{{Path: "brand-new.go", Index: '?', Worktree: '?'}},
@@ -591,7 +607,7 @@ func TestLoadStatusInRepoWithNoCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(repo, config.Config{}, &fakeRunner{})
+	m := New(repo, config.Config{}, &fakeRunner{}, nil)
 	m.width, m.height = 100, 30
 
 	msg := m.loadStatus(false)()
@@ -623,7 +639,7 @@ func TestLoadDiffForUntrackedFileLeavesTheIndexAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(repo, config.Config{}, &fakeRunner{})
+	m := New(repo, config.Config{}, &fakeRunner{}, nil)
 	m.width, m.height = 100, 30
 	m = update(m, statusMsg{
 		files:  []git.FileChange{{Path: "new.go", Index: '?', Worktree: '?'}},
@@ -662,7 +678,7 @@ func TestFailedPushStillReportsTheCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(repo, config.Config{}, &fakeRunner{})
+	m := New(repo, config.Config{}, &fakeRunner{}, nil)
 	m.width, m.height = 100, 30
 	m = update(m, statusMsg{
 		files:  []git.FileChange{{Path: "a.go", Index: ' ', Worktree: 'M'}},
@@ -822,7 +838,7 @@ func TestAmendGenerateUsesDiffAmendNotDiff(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{out: "feat: amended"}
-	m := New(repo, config.Config{Model: "haiku", Prompt: "{{diff}}"}, runner)
+	m := New(repo, config.Config{Prompt: "{{diff}}"}, runner, nil)
 	m.width, m.height = 100, 30
 	m = update(m, statusMsg{
 		files:  []git.FileChange{{Path: "a.go", Index: ' ', Worktree: 'M'}},

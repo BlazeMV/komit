@@ -71,13 +71,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "not a git repository (or git is not installed)")
 		return 1
 	}
-	cfg, err := config.Load(repo.Dir)
+	cfg, warnings, err := config.Load(repo.Dir)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if errs := cfg.Validate(); len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Fprintln(stderr, e)
+		}
+		return 1
+	}
+	runner, err := ai.New(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if repo.Loose(config.RepoFile) {
+		warnings = append(warnings, config.RepoFile+
+			" is untracked and not ignored — it will show up in your change list; add it to .gitignore if it is personal")
+	}
 
-	p := tea.NewProgram(ui.New(repo, cfg, ai.CLI{}))
+	p := tea.NewProgram(ui.New(repo, cfg, runner, warnings))
 	_, runErr := p.Run()
 	// Command goroutines are abandoned on quit, so their cleanup lands here.
 	if err := repo.DrainIntents(); err != nil {
@@ -100,12 +115,6 @@ func initConfig(stdout io.Writer) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	cfg := config.Default()
-	body := fmt.Sprintf("model: %s\nrecent_commits: %d\nrefresh:\n  on_focus: %t\n  interval: %d\nprompt: |\n",
-		cfg.Model, cfg.RecentCommits, cfg.Refresh.OnFocus, cfg.Refresh.Interval)
-	for _, line := range splitLines(cfg.Prompt) {
-		body += "  " + line + "\n"
-	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
@@ -113,7 +122,7 @@ func initConfig(stdout io.Writer) error {
 		}
 		return err
 	}
-	_, err = f.WriteString(body)
+	_, err = f.Write(config.DefaultYAML())
 	closeErr := f.Close()
 	if err != nil || closeErr != nil {
 		os.Remove(path)
@@ -124,16 +133,4 @@ func initConfig(stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "wrote %s\n", path)
 	return nil
-}
-
-func splitLines(s string) []string {
-	var out []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			out = append(out, s[start:i])
-			start = i + 1
-		}
-	}
-	return append(out, s[start:])
 }

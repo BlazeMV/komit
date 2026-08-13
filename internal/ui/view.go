@@ -1,18 +1,14 @@
 package ui
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/BlazeMV/komit/internal/ai"
 )
 
 const helpLine = "space sel · a all · d diff · g gen · r regen · e edit · c commit · P push · R refresh · q quit"
-
-const claudeMissingHint = "claude CLI not found on PATH — install it, or write the message yourself: e to edit, E for $EDITOR"
 
 // View satisfies tea.Model, which renders a View (not a string) as of v2.
 func (m Model) View() tea.View {
@@ -51,16 +47,17 @@ func (m Model) render() string {
 		b.WriteString("\n")
 	}
 
+	for _, w := range m.warnings {
+		b.WriteString(warnStyle.Render("! " + w))
+		b.WriteString("\n")
+	}
+
 	switch {
 	case m.busy:
 		b.WriteString(m.spinner.View() + " " + m.status)
 		b.WriteString("\n")
 	case m.err != nil:
-		msg := m.err.Error()
-		if errors.Is(m.err, ai.ErrMissing) {
-			msg = claudeMissingHint
-		}
-		b.WriteString(errStyle.Render(msg))
+		b.WriteString(errStyle.Render(m.err.Error()))
 		b.WriteString("\n")
 	case m.status != "":
 		b.WriteString(dimStyle.Render(m.status))

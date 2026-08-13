@@ -89,3 +89,50 @@ func TestStatusCleanRepoIsEmpty(t *testing.T) {
 		t.Errorf("got %+v, want no changes", changes)
 	}
 }
+
+func TestLoose(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, r *Repo)
+		want  bool
+	}{
+		{
+			name:  "absent",
+			setup: func(t *testing.T, r *Repo) {},
+			want:  false,
+		},
+		{
+			name: "present, neither tracked nor ignored",
+			setup: func(t *testing.T, r *Repo) {
+				write(t, r, ".komit.yml", "provider: openai\n")
+			},
+			want: true,
+		},
+		{
+			name: "ignored",
+			setup: func(t *testing.T, r *Repo) {
+				write(t, r, ".komit.yml", "provider: openai\n")
+				write(t, r, ".gitignore", ".komit.yml\n")
+			},
+			want: false,
+		},
+		{
+			name: "tracked",
+			setup: func(t *testing.T, r *Repo) {
+				write(t, r, ".komit.yml", "provider: openai\n")
+				gitDo(t, r, "add", ".komit.yml")
+				gitDo(t, r, "commit", "-m", "add config")
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRepo(t)
+			tt.setup(t, r)
+			if got := r.Loose(".komit.yml"); got != tt.want {
+				t.Errorf("Loose = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

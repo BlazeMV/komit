@@ -2,7 +2,7 @@
 
 A TUI for selecting changed files and committing them with a Claude-generated message.
 
-Requires the `claude` CLI on PATH. komit shells out to it in headless mode and uses your existing Claude subscription; there is no API key and no metered billing.
+By default komit shells out to the `claude` CLI in headless mode and uses your existing Claude subscription — no API key, no metered billing. Without that subscription, point it at the Anthropic API or any OpenAI-compatible endpoint instead; see [Providers](#providers).
 
 ## Install
 
@@ -54,11 +54,18 @@ Config lives at `$XDG_CONFIG_HOME/komit/config.yml` (else `~/.config/komit/confi
 `komit init` writes the defaults and refuses to overwrite:
 
 ```yaml
-model: haiku
+provider: claude-cli
 recent_commits: 10
 refresh:
   on_focus: true
   interval: 10
+providers:
+  claude-cli:
+    model: haiku
+  anthropic:
+    model: claude-haiku-4-5
+  openai:
+    model: gpt-5.6-luna
 prompt: |
   Write a git commit message for the diff below.
 
@@ -82,6 +89,55 @@ prompt: |
 `refresh` controls how the change list picks up edits made outside komit. `on_focus` reloads it when the terminal regains focus; `interval` is the seconds between background polls, which run only while komit has focus and pause while it is generating or committing. Set `interval: 0` to poll only when you press `R`.
 
 A refresh keeps your selection: files you ticked stay ticked, and a file that appears joins the selection only if everything was already selected. A commit is the exception — it re-applies the startup rule to whatever is left.
+
+## Providers
+
+`provider` picks which backend generates the message; each one's settings live under `providers`.
+
+| `provider` | Generates via | Needs |
+| --- | --- | --- |
+| `claude-cli` (default) | the `claude` CLI, on your subscription | the binary on PATH |
+| `anthropic` | the Anthropic Messages API | an API key |
+| `openai` | any OpenAI-compatible `/chat/completions` endpoint | an API key, unless `base_url` is set |
+
+Because `openai` takes a `base_url`, it also covers OpenRouter, Groq, DeepSeek, xAI, Ollama and LM Studio:
+
+```yaml
+provider: openai
+providers:
+  openai:
+    model: anthropic/claude-haiku-4.5
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+```
+
+A local server needs no credentials at all:
+
+```yaml
+provider: openai
+providers:
+  openai:
+    model: qwen3
+    base_url: http://localhost:11434/v1
+```
+
+### API keys
+
+Resolved in this order, first hit winning:
+
+1. the variable named by `api_key_env`
+2. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
+3. `api_key` in your user config
+
+Setting `api_key_env` opts out of step 2 entirely, so a stray `OPENAI_API_KEY` cannot stand in for the OpenRouter key you meant.
+
+`api_key` is read from your user config only. In a repo's `.komit.yml` it is ignored and komit says so — that file is one the repo can commit.
+
+### Startup checks
+
+komit validates the whole config before opening, and refuses to start with the problem named on stderr: an unknown `provider`, a provider with no `model`, a missing `claude` binary, an unparseable `base_url`, or an API provider with no key. It also warns when `.komit.yml` is present but neither tracked nor ignored, since it will otherwise turn up in your change list.
+
+Upgrading from v0.2: `model` moved from the top level into `providers.<name>.model`. komit prints the rewrite on startup.
 
 ## Uninstall
 

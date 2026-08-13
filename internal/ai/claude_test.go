@@ -27,7 +27,7 @@ func fakeClaude(t *testing.T, body string) {
 func TestCLIPassesPromptOnStdinAndReturnsStdout(t *testing.T) {
 	fakeClaude(t, `cat > /dev/null; echo "feat: from fake"`)
 
-	got, err := CLI{}.Run(context.Background(), "haiku", "the prompt")
+	got, err := CLI{Model: "haiku"}.Run(context.Background(), "the prompt")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestCLIPassesPromptOnStdinAndReturnsStdout(t *testing.T) {
 func TestCLIPromptReachesStdin(t *testing.T) {
 	fakeClaude(t, `read -r line; echo "got:$line"`)
 
-	got, err := CLI{}.Run(context.Background(), "haiku", "hello prompt")
+	got, err := CLI{Model: "haiku"}.Run(context.Background(), "hello prompt")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestCLIPromptReachesStdin(t *testing.T) {
 func TestCLIPassesExpectedFlags(t *testing.T) {
 	fakeClaude(t, `cat > /dev/null; echo "$@"`)
 
-	got, err := CLI{}.Run(context.Background(), "haiku", "p")
+	got, err := CLI{Model: "haiku"}.Run(context.Background(), "p")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestCLIPassesExpectedFlags(t *testing.T) {
 func TestCLIMissingBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	_, err := CLI{}.Run(context.Background(), "haiku", "p")
+	_, err := CLI{Model: "haiku"}.Run(context.Background(), "p")
 	if !errors.Is(err, ErrMissing) {
 		t.Fatalf("err = %v, want ErrMissing", err)
 	}
@@ -74,7 +74,7 @@ func TestCLIMissingBinary(t *testing.T) {
 func TestCLIFailureIncludesStderr(t *testing.T) {
 	fakeClaude(t, `cat > /dev/null; echo "credit balance too low" >&2; exit 1`)
 
-	_, err := CLI{}.Run(context.Background(), "haiku", "p")
+	_, err := CLI{Model: "haiku"}.Run(context.Background(), "p")
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -92,7 +92,7 @@ func TestCLIRespectsContextCancellation(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	if _, err := (CLI{}).Run(ctx, "haiku", "p"); err == nil {
+	if _, err := (CLI{Model: "haiku"}).Run(ctx, "p"); err == nil {
 		t.Fatal("expected an error when the context expires")
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
@@ -101,19 +101,18 @@ func TestCLIRespectsContextCancellation(t *testing.T) {
 }
 
 type stubRunner struct {
-	gotModel  string
 	gotPrompt string
 	out       string
 }
 
-func (s *stubRunner) Run(_ context.Context, model, prompt string) (string, error) {
-	s.gotModel, s.gotPrompt = model, prompt
+func (s *stubRunner) Run(_ context.Context, prompt string) (string, error) {
+	s.gotPrompt = prompt
 	return s.out, nil
 }
 
 func TestGenerateRendersPromptAndCleansOutput(t *testing.T) {
 	stub := &stubRunner{out: "```\nfeat: add thing\n```"}
-	cfg := config.Config{Model: "haiku", Prompt: "files={{files}} diff={{diff}}"}
+	cfg := config.Config{Prompt: "files={{files}} diff={{diff}}"}
 
 	got, err := Generate(context.Background(), stub, cfg, config.Vars{
 		Diff:  "THEDIFF",
@@ -125,9 +124,6 @@ func TestGenerateRendersPromptAndCleansOutput(t *testing.T) {
 	if got != "feat: add thing" {
 		t.Errorf("Generate = %q", got)
 	}
-	if stub.gotModel != "haiku" {
-		t.Errorf("model = %q", stub.gotModel)
-	}
 	if stub.gotPrompt != "files=a.go diff=THEDIFF" {
 		t.Errorf("prompt = %q", stub.gotPrompt)
 	}
@@ -135,7 +131,7 @@ func TestGenerateRendersPromptAndCleansOutput(t *testing.T) {
 
 func TestGenerateTruncatesDiff(t *testing.T) {
 	stub := &stubRunner{out: "msg"}
-	cfg := config.Config{Model: "haiku", Prompt: "{{diff}}"}
+	cfg := config.Config{Prompt: "{{diff}}"}
 
 	_, err := Generate(context.Background(), stub, cfg, config.Vars{
 		Diff: strings.Repeat("+x\n", 100_000),

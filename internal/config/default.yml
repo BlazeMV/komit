@@ -1,8 +1,15 @@
-model: haiku
+provider: claude-cli
 recent_commits: 10
 refresh:
   on_focus: true
   interval: 10
+providers:
+  claude-cli:
+    model: haiku
+  anthropic:
+    model: claude-haiku-4-5
+  openai:
+    model: gpt-5.6-luna
 prompt: |
   Write a git commit message for the diff below.
 

@@ -20,6 +20,19 @@ The promise: komit never leaves the user's index dirtier than it found it. Anyth
 - Cleanups register in a drainable registry on `Repo` — a `defer` inside a `tea.Cmd` goroutine is not enough, because bubbletea does not wait for command goroutines on quit. Drained on the quit key and again in `main` after `p.Run()`.
 - Index-mutating git calls are serialised behind `LockIndex`/`UnlockIndex`. Diff browsing deliberately avoids the index entirely via `git diff --no-index`.
 
+## Config merging
+
+- `yaml.Unmarshal` into a live `map[string]Provider` **replaces whole blocks**, so a repo file setting `providers.openai.model` would wipe `base_url` and `api_key`. Top-level keys still merge by unmarshalling over the struct (only present keys are touched, so `interval: 0` stays distinct from unset); `Providers` is merged field by field instead. Do not collapse the two.
+- `api_key` is stripped from `.komit.yml` — that file is one the repo can commit. `mergeFile`'s `allowSecrets` is what enforces it.
+- An empty override means "unset", so no config can blank a default. `Validate`'s empty-model rule is unreachable through `Load` and guards the runner only.
+
+## Providers
+
+- `Runner.Run` takes no model: which names are valid depends on the provider, so the model is fixed when the runner is built.
+- `config.Validate` runs in `main` before `tea.NewProgram`. Fatal problems go to stderr and exit 1 — the alt screen would swallow them otherwise. Non-fatal warnings ride into the model and clear on the first keypress.
+- `openai` sends no `max_tokens`: the reasoning models reject it.
+- Provider tests use `httptest.Server`. A handler that blocks on `r.Context().Done()` will hang `srv.Close()` — a client-side cancel does not reliably cancel the server's request context, so give the handler its own release channel.
+
 ## UI invariants
 
 - Generations are epoch-tagged; a superseded generation's result is ignored. Errors clear `busy`/`cancel` only for the current epoch.

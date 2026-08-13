@@ -54,6 +54,10 @@ type Model struct {
 	nudging  bool
 	nudge    textinput.Model
 
+	// warnings are config problems that do not stop komit. They show until the
+	// first keypress, so a startup notice cannot be missed or become wallpaper.
+	warnings []string
+
 	// focused starts true so terminals that never report focus keep polling.
 	focused bool
 	pollGen int
@@ -62,7 +66,7 @@ type Model struct {
 }
 
 // New builds the initial model. Files are loaded by the Init command.
-func New(repo *git.Repo, cfg config.Config, runner ai.Runner) Model {
+func New(repo *git.Repo, cfg config.Config, runner ai.Runner, warnings []string) Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
@@ -73,6 +77,7 @@ func New(repo *git.Repo, cfg config.Config, runner ai.Runner) Model {
 		repo:     repo,
 		cfg:      cfg,
 		runner:   runner,
+		warnings: warnings,
 		diff:     viewport.New(),
 		msgInput: newMessageInput(),
 		spinner:  sp,

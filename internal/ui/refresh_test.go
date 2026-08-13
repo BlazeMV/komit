@@ -17,7 +17,7 @@ import (
 // interval at 0: a scheduled poll is a tea.Tick, and draining one would block.
 func refreshModel(t *testing.T, r config.Refresh) Model {
 	t.Helper()
-	m := New(newUIRepo(t), config.Config{Refresh: r}, &fakeRunner{})
+	m := New(newUIRepo(t), config.Config{Refresh: r}, &fakeRunner{}, nil)
 	m.width, m.height = 100, 30
 	return update(m, statusMsg{
 		files: []git.FileChange{
@@ -387,7 +387,7 @@ func TestADifferentDiffStillRewinds(t *testing.T) {
 func TestPollPicksUpAFileWithNoKeypress(t *testing.T) {
 	repo := newUIRepo(t)
 	cfg := config.Config{Model: "haiku", Prompt: "{{diff}}", Refresh: config.Refresh{Interval: 1}}
-	m := New(repo, cfg, e2eRunner{})
+	m := New(repo, cfg, e2eRunner{}, nil)
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(100, 30))
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
@@ -407,7 +407,7 @@ func TestPollPicksUpAFileWithNoKeypress(t *testing.T) {
 
 func TestRefreshPicksUpAFileWrittenWhileRunning(t *testing.T) {
 	repo := newUIRepo(t)
-	m := New(repo, config.Config{Model: "haiku", Prompt: "{{diff}}"}, e2eRunner{})
+	m := New(repo, config.Config{Prompt: "{{diff}}"}, e2eRunner{}, nil)
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(100, 30))
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
